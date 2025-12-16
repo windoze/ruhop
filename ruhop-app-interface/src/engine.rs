@@ -751,10 +751,11 @@ impl VpnEngine {
         let tun_name = tun.name().to_string();
         self.log(LogLevel::Info, format!("Created TUN device: {}", tun_name)).await;
 
-        // Setup routes (use first server IP for route exclusion)
+        // Setup routes
         let route_manager = RouteManager::new().await?;
-        let first_server_ip = client_config.first_server_ip()?;
-        self.setup_client_routes(&route_manager, client_config, &tun_name, server_tunnel_ip, first_server_ip)
+        let server_ips = client_config.resolve_server_ips()?;
+        let original_gateway = route_manager.get_default_gateway().await?;
+        self.setup_client_routes(&route_manager, client_config, &tun_name, server_tunnel_ip, &server_ips, original_gateway)
             .await?;
 
         self.set_state(VpnState::Connected).await;
@@ -793,7 +794,7 @@ impl VpnEngine {
         run_disconnect_script(client_config.on_disconnect.as_deref(), &script_params).await;
 
         // Cleanup routes
-        self.cleanup_client_routes(&route_manager, client_config, &tun_name, server_tunnel_ip, first_server_ip)
+        self.cleanup_client_routes(&route_manager, client_config, &tun_name, server_tunnel_ip, &server_ips, original_gateway)
             .await;
 
         result
@@ -804,18 +805,61 @@ impl VpnEngine {
         route_manager: &RouteManager,
         client_config: &ClientConfig,
         tun_name: &str,
-        gateway: Ipv4Addr,
-        _server_ip: IpAddr,
+        tun_gateway: Ipv4Addr,
+        server_ips: &[IpAddr],
+        original_gateway: Option<IpAddr>,
     ) -> Result<()> {
-        // Add route to server via existing default gateway (to maintain connectivity)
-        // This is typically done automatically by the OS, but we ensure it exists
-
         if client_config.route_all_traffic {
+            // First, add routes for server IPs to use the original gateway
+            // This prevents routing loops where VPN traffic gets sent through the VPN
+            if let Some(orig_gw) = original_gateway {
+                for server_ip in server_ips {
+                    match server_ip {
+                        IpAddr::V4(ip) => {
+                            if let IpAddr::V4(gw) = orig_gw {
+                                let route = Route::ipv4(*ip, 32, Some(gw))?;
+                                if let Err(e) = route_manager.add(&route).await {
+                                    self.log(
+                                        LogLevel::Warning,
+                                        format!("Failed to add server route for {}: {}", ip, e),
+                                    )
+                                    .await;
+                                } else {
+                                    self.log(
+                                        LogLevel::Debug,
+                                        format!("Added route for server {} via {}", ip, gw),
+                                    )
+                                    .await;
+                                }
+                            }
+                        }
+                        IpAddr::V6(ip) => {
+                            if let IpAddr::V6(gw) = orig_gw {
+                                let route = Route::ipv6(*ip, 128, Some(gw))?;
+                                if let Err(e) = route_manager.add(&route).await {
+                                    self.log(
+                                        LogLevel::Warning,
+                                        format!("Failed to add server route for {}: {}", ip, e),
+                                    )
+                                    .await;
+                                }
+                            }
+                        }
+                    }
+                }
+            } else {
+                self.log(
+                    LogLevel::Warning,
+                    "No default gateway found, server routes not added - VPN may not work correctly",
+                )
+                .await;
+            }
+
             // Route all traffic through VPN
             // Split into two /1 routes to override default without removing it
-            let route1 = Route::ipv4(Ipv4Addr::new(0, 0, 0, 0), 1, Some(gateway))?
+            let route1 = Route::ipv4(Ipv4Addr::new(0, 0, 0, 0), 1, Some(tun_gateway))?
                 .with_interface(tun_name);
-            let route2 = Route::ipv4(Ipv4Addr::new(128, 0, 0, 0), 1, Some(gateway))?
+            let route2 = Route::ipv4(Ipv4Addr::new(128, 0, 0, 0), 1, Some(tun_gateway))?
                 .with_interface(tun_name);
 
             route_manager.add(&route1).await?;
@@ -832,15 +876,39 @@ impl VpnEngine {
         route_manager: &RouteManager,
         client_config: &ClientConfig,
         tun_name: &str,
-        gateway: Ipv4Addr,
-        _server_ip: IpAddr,
+        tun_gateway: Ipv4Addr,
+        server_ips: &[IpAddr],
+        original_gateway: Option<IpAddr>,
     ) {
         if client_config.route_all_traffic {
-            if let Ok(route1) = Route::ipv4(Ipv4Addr::new(0, 0, 0, 0), 1, Some(gateway)) {
+            // Remove the catch-all routes
+            if let Ok(route1) = Route::ipv4(Ipv4Addr::new(0, 0, 0, 0), 1, Some(tun_gateway)) {
                 let _ = route_manager.delete(&route1.with_interface(tun_name)).await;
             }
-            if let Ok(route2) = Route::ipv4(Ipv4Addr::new(128, 0, 0, 0), 1, Some(gateway)) {
+            if let Ok(route2) = Route::ipv4(Ipv4Addr::new(128, 0, 0, 0), 1, Some(tun_gateway)) {
                 let _ = route_manager.delete(&route2.with_interface(tun_name)).await;
+            }
+
+            // Remove server-specific routes
+            if let Some(orig_gw) = original_gateway {
+                for server_ip in server_ips {
+                    match server_ip {
+                        IpAddr::V4(ip) => {
+                            if let IpAddr::V4(gw) = orig_gw {
+                                if let Ok(route) = Route::ipv4(*ip, 32, Some(gw)) {
+                                    let _ = route_manager.delete(&route).await;
+                                }
+                            }
+                        }
+                        IpAddr::V6(ip) => {
+                            if let IpAddr::V6(gw) = orig_gw {
+                                if let Ok(route) = Route::ipv6(*ip, 128, Some(gw)) {
+                                    let _ = route_manager.delete(&route).await;
+                                }
+                            }
+                        }
+                    }
+                }
             }
         }
     }

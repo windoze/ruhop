@@ -197,6 +197,20 @@ impl RouteManager {
         Ok(Self { handle })
     }
 
+    /// Get the current default route (gateway)
+    ///
+    /// Returns the default gateway address if one exists, or None if no default route is configured.
+    #[cfg(feature = "async-tokio")]
+    pub async fn get_default_gateway(&self) -> Result<Option<IpAddr>> {
+        let route = self
+            .handle
+            .default_route()
+            .await
+            .map_err(|e| Error::Route(format!("failed to get default route: {}", e)))?;
+
+        Ok(route.and_then(|r| r.gateway))
+    }
+
     /// Add a route to the routing table
     ///
     /// # Example
