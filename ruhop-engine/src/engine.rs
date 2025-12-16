@@ -529,6 +529,7 @@ impl VpnEngine {
                                     peer_addr,
                                     socket_idx,
                                     &event_handler_udp,
+                                    &stats_udp,
                                 )
                                 .await;
                             } else if flags.is_handshake() && !flags.is_ack() {
@@ -573,6 +574,7 @@ impl VpnEngine {
                                     sid,
                                     peer_addr,
                                     &event_handler_udp,
+                                    &stats_udp,
                                 )
                                 .await;
                             } else if flags.is_data() {
@@ -602,6 +604,7 @@ impl VpnEngine {
 
         // Spawn heartbeat task
         let sessions_hb = sessions.clone();
+        let stats_hb = shared_stats.clone();
         let heartbeat_interval = Duration::from_secs(self.config.common.heartbeat_interval);
         let session_timeout = Duration::from_secs(heartbeat_interval.as_secs() * 3);
 
@@ -625,6 +628,9 @@ impl VpnEngine {
                         // Note: pool cleanup would happen here
                     }
                 }
+
+                // Update active sessions count after removing expired sessions
+                stats_hb.set_active_sessions(sessions.len());
             }
         });
 
@@ -1154,6 +1160,7 @@ async fn handle_server_knock_multi(
     peer_addr: SocketAddr,
     socket_idx: usize,
     _event_handler: &Arc<dyn EventHandler>,
+    shared_stats: &SharedStatsRef,
 ) {
     let mut sessions_lock = sessions.write().await;
 
@@ -1194,6 +1201,9 @@ async fn handle_server_knock_multi(
             last_recv_socket_idx: socket_idx,
         },
     );
+
+    // Update active sessions count
+    shared_stats.set_active_sessions(sessions_lock.len());
 
     // Add IP mapping
     if let IpAddress::V4(ip) = address_pair.client.ip {
@@ -1320,10 +1330,14 @@ async fn handle_server_finish(
     sid: u32,
     peer_addr: SocketAddr,
     event_handler: &Arc<dyn EventHandler>,
+    shared_stats: &SharedStatsRef,
 ) {
     let mut sessions_lock = sessions.write().await;
 
     if let Some(client) = sessions_lock.remove(&sid) {
+        // Update active sessions count
+        shared_stats.set_active_sessions(sessions_lock.len());
+
         // Send FIN ACK
         let fin_ack = Packet::finish_ack(sid);
         if let Ok(encrypted) = cipher.encrypt(&fin_ack, 0) {
