@@ -1,6 +1,6 @@
-//! Ruhop App Interface
+//! Ruhop Engine
 //!
-//! This crate provides a reusable VPN engine interface that can be used
+//! This crate provides a reusable VPN engine that can be used
 //! by both CLI and GUI applications to manage VPN connections.
 //!
 //! # Architecture
@@ -15,7 +15,7 @@
 //! │           └───────────────┬──────────────────┘              │
 //! │                           ▼                                  │
 //! │  ┌────────────────────────────────────────────────────────┐ │
-//! │  │              ruhop-app-interface                        │ │
+//! │  │                   ruhop-engine                          │ │
 //! │  │  - VpnEngine (main interface)                          │ │
 //! │  │  - Config (TOML configuration)                         │ │
 //! │  │  - Events (status updates, errors)                     │ │

@@ -1,10 +1,10 @@
-# ruhop-app-interface
+# ruhop-engine
 
-Ruhop 的 VPN 引擎接口 - 可在 CLI 和 GUI 应用中复用。
+Ruhop 的 VPN 引擎 - 可在 CLI 和 GUI 应用中复用。
 
 ## 概述
 
-`ruhop-app-interface` 提供了构建 VPN 应用的高级 API。它抽象了底层协议和 TUN 设备处理的复杂性，适用于 CLI 和 GUI 应用。
+`ruhop-engine` 提供了构建 VPN 应用的高级 API。它抽象了底层协议和 TUN 设备处理的复杂性，适用于 CLI 和 GUI 应用。
 
 ## 架构
 
@@ -18,7 +18,7 @@ Ruhop 的 VPN 引擎接口 - 可在 CLI 和 GUI 应用中复用。
 │           └───────────────┬──────────────────┘              │
 │                           ▼                                  │
 │  ┌────────────────────────────────────────────────────────┐ │
-│  │              ruhop-app-interface                        │ │
+│  │                   ruhop-engine                          │ │
 │  │  - VpnEngine（主接口）                                  │ │
 │  │  - Config（TOML 配置）                                  │ │
 │  │  - Events（状态更新、错误）                              │ │
@@ -43,7 +43,7 @@ Ruhop 的 VPN 引擎接口 - 可在 CLI 和 GUI 应用中复用。
 
 ```toml
 [dependencies]
-ruhop-app-interface = { path = "../ruhop-app-interface" }
+ruhop-engine = { path = "../ruhop-engine" }
 ```
 
 ## 公共 API
@@ -60,10 +60,10 @@ pub use event::{VpnEvent, VpnState, VpnStats};
 ### 基本示例
 
 ```rust
-use ruhop_app_interface::{Config, VpnEngine, VpnRole};
+use ruhop_engine::{Config, VpnEngine, VpnRole};
 
 #[tokio::main]
-async fn main() -> ruhop_app_interface::Result<()> {
+async fn main() -> ruhop_engine::Result<()> {
     // 从 TOML 文件加载配置
     let config = Config::load("ruhop.toml")?;
 
@@ -94,8 +94,8 @@ async fn main() -> ruhop_app_interface::Result<()> {
 ```rust
 use std::sync::Arc;
 use async_trait::async_trait;
-use ruhop_app_interface::{Config, VpnEngine, VpnRole, VpnEvent, VpnState};
-use ruhop_app_interface::event::EventHandler;
+use ruhop_engine::{Config, VpnEngine, VpnRole, VpnEvent, VpnState};
+use ruhop_engine::event::EventHandler;
 
 struct MyHandler;
 
@@ -194,7 +194,7 @@ VPN 使用端口跳跃进行流量混淆：
 ### 配置加载
 
 ```rust
-use ruhop_app_interface::Config;
+use ruhop_engine::Config;
 
 // 从文件加载
 let config = Config::load("ruhop.toml")?;

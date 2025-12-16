@@ -1727,7 +1727,19 @@ dependencies = [
 ]
 
 [[package]]
-name = "ruhop-app-interface"
+name = "ruhop-cli"
+version = "0.4.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "ruhop-engine",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
+name = "ruhop-engine"
 version = "0.4.0"
 dependencies = [
  "async-trait",
@@ -1743,18 +1755,6 @@ dependencies = [
  "tokio",
  "toml",
  "tracing",
-]
-
-[[package]]
-name = "ruhop-cli"
-version = "0.4.0"
-dependencies = [
- "anyhow",
- "clap",
- "ruhop-app-interface",
- "tokio",
- "tracing",
- "tracing-subscriber",
 ]
 
 [[package]]

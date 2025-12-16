@@ -90,7 +90,7 @@ ruhop/
 │   └── src/
 ├── hop-tun/             # TUN device management
 │   └── src/
-├── ruhop-app-interface/ # VPN engine interface
+├── ruhop-engine/        # VPN engine interface
 │   └── src/
 ├── ruhop-cli/           # Command-line interface
 │   └── src/
@@ -104,7 +104,7 @@ ruhop/
 |-------|-------------|
 | [hop-protocol](hop-protocol/) | OS-independent protocol library for packet encoding/decoding, encryption, and session management |
 | [hop-tun](hop-tun/) | Cross-platform TUN device management, route management, and NAT setup |
-| [ruhop-app-interface](ruhop-app-interface/) | High-level VPN engine interface for building CLI/GUI applications |
+| [ruhop-engine](ruhop-engine/) | High-level VPN engine interface for building CLI/GUI applications |
 | [ruhop-cli](ruhop-cli/) | Command-line interface for running Ruhop VPN |
 
 ## Platform Requirements
@@ -165,13 +165,13 @@ cargo fmt
 
 ## Using as a Library
 
-### Using ruhop-app-interface
+### Using ruhop-engine
 
 ```rust
-use ruhop_app_interface::{Config, VpnEngine, VpnRole};
+use ruhop_engine::{Config, VpnEngine, VpnRole};
 
 #[tokio::main]
-async fn main() -> ruhop_app_interface::Result<()> {
+async fn main() -> ruhop_engine::Result<()> {
     let config = Config::load("ruhop.toml")?;
     let mut engine = VpnEngine::new(config, VpnRole::Client)?;
 

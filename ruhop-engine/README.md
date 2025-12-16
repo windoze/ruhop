@@ -1,10 +1,10 @@
-# ruhop-app-interface
+# ruhop-engine
 
-VPN engine interface for Ruhop - reusable across CLI and GUI applications.
+VPN engine for Ruhop - reusable across CLI and GUI applications.
 
 ## Overview
 
-`ruhop-app-interface` provides a high-level API for building VPN applications. It abstracts the complexity of the underlying protocol and TUN device handling, making it suitable for both CLI and GUI applications.
+`ruhop-engine` provides a high-level API for building VPN applications. It abstracts the complexity of the underlying protocol and TUN device handling, making it suitable for both CLI and GUI applications.
 
 ## Architecture
 
@@ -18,7 +18,7 @@ VPN engine interface for Ruhop - reusable across CLI and GUI applications.
 │           └───────────────┬──────────────────┘              │
 │                           ▼                                  │
 │  ┌────────────────────────────────────────────────────────┐ │
-│  │              ruhop-app-interface                        │ │
+│  │                   ruhop-engine                          │ │
 │  │  - VpnEngine (main interface)                          │ │
 │  │  - Config (TOML configuration)                         │ │
 │  │  - Events (status updates, errors)                     │ │
@@ -43,7 +43,7 @@ Add to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-ruhop-app-interface = { path = "../ruhop-app-interface" }
+ruhop-engine = { path = "../ruhop-engine" }
 ```
 
 ## Public API
@@ -60,10 +60,10 @@ pub use event::{VpnEvent, VpnState, VpnStats};
 ### Basic Example
 
 ```rust
-use ruhop_app_interface::{Config, VpnEngine, VpnRole};
+use ruhop_engine::{Config, VpnEngine, VpnRole};
 
 #[tokio::main]
-async fn main() -> ruhop_app_interface::Result<()> {
+async fn main() -> ruhop_engine::Result<()> {
     // Load configuration from TOML file
     let config = Config::load("ruhop.toml")?;
 
@@ -94,8 +94,8 @@ Implement `EventHandler` to receive VPN lifecycle notifications:
 ```rust
 use std::sync::Arc;
 use async_trait::async_trait;
-use ruhop_app_interface::{Config, VpnEngine, VpnRole, VpnEvent, VpnState};
-use ruhop_app_interface::event::EventHandler;
+use ruhop_engine::{Config, VpnEngine, VpnRole, VpnEvent, VpnState};
+use ruhop_engine::event::EventHandler;
 
 struct MyHandler;
 
@@ -194,7 +194,7 @@ The VPN uses port hopping for traffic obfuscation:
 ### Configuration Loading
 
 ```rust
-use ruhop_app_interface::Config;
+use ruhop_engine::Config;
 
 // Load from file
 let config = Config::load("ruhop.toml")?;

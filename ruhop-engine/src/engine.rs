@@ -400,6 +400,7 @@ impl VpnEngine {
         Ok(())
     }
 
+    #[allow(clippy::too_many_arguments)]
     async fn run_server_loop(
         &self,
         tun: Arc<TunDevice>,
@@ -955,6 +956,7 @@ impl VpnEngine {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     async fn run_client_loop(
         &self,
         tun: Arc<TunDevice>,

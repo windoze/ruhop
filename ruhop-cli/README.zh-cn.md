@@ -4,7 +4,7 @@ Ruhop VPN 的命令行界面。
 
 ## 概述
 
-`ruhop-cli` 提供了一个命令行工具，用于以服务器或客户端模式运行 Ruhop VPN。它基于 `ruhop-app-interface` 构建，提供了一种从终端管理 VPN 连接的简单方法。
+`ruhop-cli` 提供了一个命令行工具，用于以服务器或客户端模式运行 Ruhop VPN。它基于 `ruhop-engine` 构建，提供了一种从终端管理 VPN 连接的简单方法。
 
 ## 安装
 
@@ -146,7 +146,7 @@ ruhop gen-config [选项]
 
 ## 配置
 
-详细配置选项请参阅 [ruhop-app-interface](../ruhop-app-interface/README.zh-cn.md)。
+详细配置选项请参阅 [ruhop-engine](../ruhop-engine/README.zh-cn.md)。
 
 ### 最小服务器配置
 

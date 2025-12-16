@@ -1,5 +1,5 @@
 [package]
-name = "ruhop-app-interface"
+name = "ruhop-engine"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true

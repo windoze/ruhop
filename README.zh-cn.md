@@ -90,7 +90,7 @@ ruhop/
 │   └── src/
 ├── hop-tun/             # TUN 设备管理
 │   └── src/
-├── ruhop-app-interface/ # VPN 引擎接口
+├── ruhop-engine/        # VPN 引擎接口
 │   └── src/
 ├── ruhop-cli/           # 命令行界面
 │   └── src/
@@ -104,7 +104,7 @@ ruhop/
 |-------|-------------|
 | [hop-protocol](hop-protocol/) | 操作系统无关的协议库，用于数据包编解码、加密和会话管理 |
 | [hop-tun](hop-tun/) | 跨平台 TUN 设备管理、路由管理和 NAT 设置 |
-| [ruhop-app-interface](ruhop-app-interface/) | 高级 VPN 引擎接口，用于构建 CLI/GUI 应用 |
+| [ruhop-engine](ruhop-engine/) | 高级 VPN 引擎接口，用于构建 CLI/GUI 应用 |
 | [ruhop-cli](ruhop-cli/) | 运行 Ruhop VPN 的命令行界面 |
 
 ## 平台要求
@@ -165,13 +165,13 @@ cargo fmt
 
 ## 作为库使用
 
-### 使用 ruhop-app-interface
+### 使用 ruhop-engine
 
 ```rust
-use ruhop_app_interface::{Config, VpnEngine, VpnRole};
+use ruhop_engine::{Config, VpnEngine, VpnRole};
 
 #[tokio::main]
-async fn main() -> ruhop_app_interface::Result<()> {
+async fn main() -> ruhop_engine::Result<()> {
     let config = Config::load("ruhop.toml")?;
     let mut engine = VpnEngine::new(config, VpnRole::Client)?;
 

@@ -10,7 +10,7 @@ use tokio::signal;
 use tracing::{error, info};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
 
-use ruhop_app_interface::{Config, ControlClient, VpnEngine, VpnRole, DEFAULT_SOCKET_PATH};
+use ruhop_engine::{Config, ControlClient, VpnEngine, VpnRole, DEFAULT_SOCKET_PATH};
 
 /// Ruhop VPN - A Rust implementation of GoHop protocol
 #[derive(Parser)]

@@ -4,7 +4,7 @@ Command-line interface for the Ruhop VPN.
 
 ## Overview
 
-`ruhop-cli` provides a command-line tool for running Ruhop VPN in server or client mode. It's built on top of `ruhop-app-interface` and provides a simple way to manage VPN connections from the terminal.
+`ruhop-cli` provides a command-line tool for running Ruhop VPN in server or client mode. It's built on top of `ruhop-engine` and provides a simple way to manage VPN connections from the terminal.
 
 ## Installation
 
@@ -146,7 +146,7 @@ Options:
 
 ## Configuration
 
-See [ruhop-app-interface](../ruhop-app-interface/README.md) for detailed configuration options.
+See [ruhop-engine](../ruhop-engine/README.md) for detailed configuration options.
 
 ### Minimal Server Config
 
