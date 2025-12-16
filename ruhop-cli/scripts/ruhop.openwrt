@@ -1,0 +1,67 @@
+#!/bin/sh /etc/rc.common
+#
+# Ruhop VPN init script for OpenWRT
+#
+# Install to /etc/init.d/ruhop
+# Enable with: /etc/init.d/ruhop enable
+# Start with: /etc/init.d/ruhop start
+#
+
+START=99
+STOP=10
+USE_PROCD=1
+
+PROG=/usr/bin/ruhop-cli
+CONF=/etc/ruhop/ruhop.toml
+
+start_service() {
+    # Read configuration from UCI if available
+    config_load 'ruhop'
+    config_get mode 'main' 'mode' 'client'
+    config_get conf_file 'main' 'config' "$CONF"
+    config_get_bool enabled 'main' 'enabled' '1'
+
+    [ "$enabled" -eq 0 ] && return 0
+
+    # Ensure config file exists
+    if [ ! -f "$conf_file" ]; then
+        logger -t ruhop "Config file not found: $conf_file"
+        return 1
+    fi
+
+    procd_open_instance
+    procd_set_param command "$PROG" --config "$conf_file" "$mode"
+    procd_set_param respawn ${respawn_threshold:-3600} ${respawn_timeout:-5} ${respawn_retry:-5}
+    procd_set_param stdout 1
+    procd_set_param stderr 1
+    procd_set_param pidfile /var/run/ruhop.pid
+    procd_set_param file "$conf_file"
+    procd_close_instance
+
+    logger -t ruhop "Starting ruhop VPN in $mode mode"
+}
+
+stop_service() {
+    logger -t ruhop "Stopping ruhop VPN"
+}
+
+reload_service() {
+    stop
+    start
+}
+
+service_triggers() {
+    procd_add_reload_trigger "ruhop"
+    procd_add_config_trigger "config.change" "ruhop" /etc/init.d/ruhop reload
+}
+
+# Status function for compatibility
+status() {
+    if pgrep -f "$PROG" > /dev/null 2>&1; then
+        echo "ruhop is running"
+        return 0
+    else
+        echo "ruhop is not running"
+        return 1
+    fi
+}

@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>codes.unwritten.ruhop</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/usr/local/bin/ruhop-cli</string>
+        <string>--config</string>
+        <string>/usr/local/etc/ruhop/ruhop.toml</string>
+        <string>client</string>
+    </array>
+
+    <key>RunAtLoad</key>
+    <false/>
+
+    <key>KeepAlive</key>
+    <dict>
+        <key>SuccessfulExit</key>
+        <false/>
+    </dict>
+
+    <key>StandardOutPath</key>
+    <string>/usr/local/var/log/ruhop/ruhop.log</string>
+
+    <key>StandardErrorPath</key>
+    <string>/usr/local/var/log/ruhop/ruhop.err</string>
+
+    <key>WorkingDirectory</key>
+    <string>/usr/local/var/ruhop</string>
+
+    <key>ThrottleInterval</key>
+    <integer>5</integer>
+
+    <key>ProcessType</key>
+    <string>Background</string>
+
+    <key>Nice</key>
+    <integer>-5</integer>
+</dict>
+</plist>
