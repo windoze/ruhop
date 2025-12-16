@@ -1,0 +1,188 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag (e.g., v0.1.0)'
+        required: false
+        type: string
+
+env:
+  CARGO_TERM_COLOR: always
+  BINARY_NAME: ruhop
+
+jobs:
+  build-linux-amd64:
+    name: Build Linux x86_64 (musl)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-unknown-linux-musl
+
+      - name: Install musl-tools
+        run: sudo apt-get update && sudo apt-get install -y musl-tools
+
+      - name: Build
+        run: cargo build --release --target x86_64-unknown-linux-musl -p ruhop-cli
+
+      - name: Prepare artifact
+        run: |
+          mkdir -p artifacts
+          cp target/x86_64-unknown-linux-musl/release/${{ env.BINARY_NAME }} artifacts/${{ env.BINARY_NAME }}-linux-amd64
+          chmod +x artifacts/${{ env.BINARY_NAME }}-linux-amd64
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-amd64
+          path: artifacts/${{ env.BINARY_NAME }}-linux-amd64
+
+  build-linux-arm64:
+    name: Build Linux aarch64 (musl)
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-unknown-linux-musl
+
+      - name: Install musl-tools
+        run: sudo apt-get update && sudo apt-get install -y musl-tools
+
+      - name: Build
+        run: cargo build --release --target aarch64-unknown-linux-musl -p ruhop-cli
+
+      - name: Prepare artifact
+        run: |
+          mkdir -p artifacts
+          cp target/aarch64-unknown-linux-musl/release/${{ env.BINARY_NAME }} artifacts/${{ env.BINARY_NAME }}-linux-arm64
+          chmod +x artifacts/${{ env.BINARY_NAME }}-linux-arm64
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-arm64
+          path: artifacts/${{ env.BINARY_NAME }}-linux-arm64
+
+  build-macos:
+    name: Build macOS Universal
+    runs-on: macos-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-apple-darwin,aarch64-apple-darwin
+
+      - name: Build x86_64
+        run: cargo build --release --target x86_64-apple-darwin -p ruhop-cli
+
+      - name: Build aarch64
+        run: cargo build --release --target aarch64-apple-darwin -p ruhop-cli
+
+      - name: Create universal binary
+        run: |
+          mkdir -p artifacts
+          lipo -create \
+            target/x86_64-apple-darwin/release/${{ env.BINARY_NAME }} \
+            target/aarch64-apple-darwin/release/${{ env.BINARY_NAME }} \
+            -output artifacts/${{ env.BINARY_NAME }}-macos-universal
+          chmod +x artifacts/${{ env.BINARY_NAME }}-macos-universal
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-universal
+          path: artifacts/${{ env.BINARY_NAME }}-macos-universal
+
+  build-windows:
+    name: Build Windows
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Build
+        run: cargo build --release -p ruhop-cli
+
+      - name: Prepare artifact
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path artifacts
+          Copy-Item "target\release\${{ env.BINARY_NAME }}.exe" "artifacts\${{ env.BINARY_NAME }}-windows-amd64.exe"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-amd64
+          path: artifacts/${{ env.BINARY_NAME }}-windows-amd64.exe
+
+  release:
+    name: Create Release
+    needs: [build-linux-amd64, build-linux-arm64, build-macos, build-windows]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Determine release tag
+        id: tag
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ -n "${{ inputs.tag }}" ]; then
+            echo "tag=${{ inputs.tag }}" >> $GITHUB_OUTPUT
+          elif [ "${{ github.event_name }}" = "push" ]; then
+            echo "tag=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+          else
+            echo "tag=manual-$(date +%Y%m%d-%H%M%S)" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Prepare release assets
+        run: |
+          mkdir -p release
+          # Move and rename artifacts
+          mv artifacts/linux-amd64/${{ env.BINARY_NAME }}-linux-amd64 release/
+          mv artifacts/linux-arm64/${{ env.BINARY_NAME }}-linux-arm64 release/
+          mv artifacts/macos-universal/${{ env.BINARY_NAME }}-macos-universal release/
+          mv artifacts/windows-amd64/${{ env.BINARY_NAME }}-windows-amd64.exe release/
+          # Generate checksums
+          cd release
+          sha256sum * > SHA256SUMS.txt
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.tag.outputs.tag }}
+          name: Release ${{ steps.tag.outputs.tag }}
+          draft: ${{ github.event_name == 'workflow_dispatch' }}
+          prerelease: ${{ contains(steps.tag.outputs.tag, '-') }}
+          generate_release_notes: true
+          files: |
+            release/${{ env.BINARY_NAME }}-linux-amd64
+            release/${{ env.BINARY_NAME }}-linux-arm64
+            release/${{ env.BINARY_NAME }}-macos-universal
+            release/${{ env.BINARY_NAME }}-windows-amd64.exe
+            release/SHA256SUMS.txt
