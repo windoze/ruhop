@@ -3,6 +3,7 @@
 //! This module provides cross-platform route management functionality
 //! for adding, removing, and querying routes associated with TUN interfaces.
 
+#[cfg(unix)]
 use std::ffi::CString;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 

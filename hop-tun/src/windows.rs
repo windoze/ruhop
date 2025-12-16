@@ -176,7 +176,7 @@ pub fn set_adapter_mtu(name: &str, mtu: u32) -> Result<()> {
 pub fn configure_firewall(interface: &str, enable: bool) -> Result<()> {
     let action = if enable { "enable" } else { "disable" };
 
-    let output = Command::new("netsh")
+    let _output = Command::new("netsh")
         .args([
             "advfirewall",
             "firewall",
