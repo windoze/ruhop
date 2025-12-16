@@ -1,0 +1,27 @@
+[package]
+name = "ruhop-cli"
+version = "0.1.0"
+edition = "2021"
+description = "Command-line interface for Ruhop VPN"
+license = "MIT OR Apache-2.0"
+
+[[bin]]
+name = "ruhop"
+path = "src/main.rs"
+
+[dependencies]
+# App interface
+ruhop-app-interface = { path = "../ruhop-app-interface" }
+
+# CLI argument parsing
+clap = { version = "4.5", features = ["derive"] }
+
+# Async runtime
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "signal"] }
+
+# Logging
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# Error handling
+anyhow = "1.0"

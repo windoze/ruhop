@@ -1,0 +1,18 @@
+[package]
+name = "hop-protocol"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+aes = "0.8"
+cbc = "0.1"
+snap = "1.1"
+rand = "0.8"
+thiserror = "2"
+bytes = "1.11"
+async-trait = "0.1"
+
+[dev-dependencies]
+hex = "0.4"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "time", "sync"] }
+local-ip-address = "0.6"

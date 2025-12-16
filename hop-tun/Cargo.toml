@@ -1,0 +1,63 @@
+[package]
+name = "hop-tun"
+version = "0.1.0"
+edition = "2021"
+description = "Cross-platform TUN device management for VPN implementations"
+license = "MIT OR Apache-2.0"
+keywords = ["tun", "tap", "vpn", "network", "tunnel"]
+categories = ["network-programming", "os"]
+
+[features]
+default = ["async-tokio"]
+async-tokio = ["tun-rs/async_tokio", "tokio"]
+async-std = ["tun-rs/async_std", "async-std-crate"]
+# Enable NetworkExtension bindings for macOS/iOS App Extensions
+network-extension = ["objc2", "objc2-foundation", "objc2-network-extension", "block2"]
+
+[dependencies]
+# Core TUN device support
+tun-rs = "2.7"
+
+# Route management
+net-route = "0.4"
+
+# Async runtimes (optional)
+tokio = { version = "1", features = ["net", "io-util", "sync", "macros", "rt"], optional = true }
+async-std-crate = { package = "async-std", version = "1.12", optional = true }
+
+# Error handling
+thiserror = "2"
+
+# Logging
+log = "0.4"
+
+# IP address handling
+ipnet = "2.11"
+
+# Platform-specific dependencies
+[target.'cfg(target_os = "linux")'.dependencies]
+rtnetlink = "0.19"
+netlink-packet-route = "0.26"
+
+[target.'cfg(target_os = "windows")'.dependencies]
+windows-sys = { version = "0.61", features = [
+    "Win32_Foundation",
+    "Win32_NetworkManagement_IpHelper",
+    "Win32_Networking_WinSock",
+    "Win32_System_IO",
+] }
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+nix = { version = "0.30", features = ["net", "ioctl"] }
+
+# macOS/iOS NetworkExtension bindings (optional)
+[target.'cfg(any(target_os = "macos", target_os = "ios"))'.dependencies]
+objc2 = { version = "0.6", optional = true }
+objc2-foundation = { version = "0.3", optional = true, features = ["NSArray", "NSDictionary", "NSError", "NSString", "NSData"] }
+objc2-network-extension = { version = "0.3", optional = true }
+block2 = { version = "0.6", optional = true }
+
+[dev-dependencies]
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "time"] }
+env_logger = "0.11"

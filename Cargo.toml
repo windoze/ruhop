@@ -1,0 +1,11 @@
+[workspace]
+members = ["hop-protocol", "hop-tun", "ruhop-app-interface", "ruhop-cli"]
+resolver = "2"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+authors = ["Chen Xu"]
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/chenxu/ruhop"
+description = "A Rust implementation of the GoHop VPN protocol with port hopping capabilities"
