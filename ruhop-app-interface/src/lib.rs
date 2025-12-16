@@ -35,12 +35,14 @@
 //! ```
 
 pub mod config;
+pub mod control;
 pub mod engine;
 pub mod error;
 pub mod event;
 pub mod script;
 
 pub use config::{ClientConfig, Config, ServerConfig};
+pub use control::{ControlClient, ControlRequest, ControlResponse, StatusInfo, ClientInfo, ClientsInfo, DEFAULT_SOCKET_PATH};
 pub use engine::{VpnEngine, VpnRole};
 pub use error::{Error, Result};
 pub use event::{VpnEvent, VpnState, VpnStats};

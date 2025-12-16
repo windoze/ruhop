@@ -10,7 +10,7 @@ use tokio::signal;
 use tracing::{error, info};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
 
-use ruhop_app_interface::{Config, VpnEngine, VpnRole};
+use ruhop_app_interface::{Config, ControlClient, VpnEngine, VpnRole, DEFAULT_SOCKET_PATH};
 
 /// Ruhop VPN - A Rust implementation of GoHop protocol
 #[derive(Parser)]
@@ -37,6 +37,13 @@ enum Commands {
     /// Run as VPN client
     Client,
 
+    /// Show status of a running VPN instance
+    Status {
+        /// Path to the control socket
+        #[arg(short, long, default_value = DEFAULT_SOCKET_PATH)]
+        socket: String,
+    },
+
     /// Generate a sample configuration file
     GenConfig {
         /// Output path for the configuration file
@@ -55,6 +62,7 @@ async fn main() -> Result<()> {
     match cli.command {
         Commands::Server => run_server(cli.config).await,
         Commands::Client => run_client(cli.config).await,
+        Commands::Status { socket } => show_status(socket).await,
         Commands::GenConfig { output } => generate_config(output),
     }
 }
@@ -144,6 +152,80 @@ async fn run_client(config_path: PathBuf) -> Result<()> {
 fn load_config(path: &PathBuf) -> Result<Config> {
     Config::load(path)
         .with_context(|| format!("Failed to load configuration from {:?}", path))
+}
+
+async fn show_status(socket_path: String) -> Result<()> {
+    let client = ControlClient::new(&socket_path);
+
+    match client.status().await {
+        Ok(status) => {
+            println!("Ruhop VPN Status");
+            println!("================");
+            println!("Role:            {}", status.role);
+            println!("State:           {}", status.state);
+            println!("Uptime:          {}", format_duration(status.uptime_secs));
+
+            if let Some(ref ip) = status.tunnel_ip {
+                println!("Tunnel IP:       {}", ip);
+            }
+            if let Some(ref ip) = status.peer_ip {
+                println!("Peer IP:         {}", ip);
+            }
+
+            println!();
+            println!("Traffic Statistics");
+            println!("------------------");
+            println!("Bytes RX:        {} ({})", status.bytes_rx, format_bytes(status.bytes_rx));
+            println!("Bytes TX:        {} ({})", status.bytes_tx, format_bytes(status.bytes_tx));
+            println!("Packets RX:      {}", status.packets_rx);
+            println!("Packets TX:      {}", status.packets_tx);
+
+            if status.role == "server" {
+                println!();
+                println!("Server Info");
+                println!("-----------");
+                println!("Active Sessions: {}", status.active_sessions);
+            }
+
+            Ok(())
+        }
+        Err(e) => {
+            eprintln!("Failed to get status: {}", e);
+            eprintln!("\nMake sure the VPN is running and the socket path is correct.");
+            eprintln!("Socket path: {}", socket_path);
+            std::process::exit(1);
+        }
+    }
+}
+
+fn format_duration(secs: u64) -> String {
+    let hours = secs / 3600;
+    let minutes = (secs % 3600) / 60;
+    let seconds = secs % 60;
+
+    if hours > 0 {
+        format!("{}h {}m {}s", hours, minutes, seconds)
+    } else if minutes > 0 {
+        format!("{}m {}s", minutes, seconds)
+    } else {
+        format!("{}s", seconds)
+    }
+}
+
+fn format_bytes(bytes: u64) -> String {
+    const KB: u64 = 1024;
+    const MB: u64 = KB * 1024;
+    const GB: u64 = MB * 1024;
+
+    if bytes >= GB {
+        format!("{:.2} GB", bytes as f64 / GB as f64)
+    } else if bytes >= MB {
+        format!("{:.2} MB", bytes as f64 / MB as f64)
+    } else if bytes >= KB {
+        format!("{:.2} KB", bytes as f64 / KB as f64)
+    } else {
+        format!("{} B", bytes)
+    }
 }
 
 fn generate_config(output: PathBuf) -> Result<()> {

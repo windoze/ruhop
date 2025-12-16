@@ -19,6 +19,7 @@ use hop_protocol::{
 use hop_tun::{Route, RouteManager, TunConfig, TunDevice};
 
 use crate::config::{ClientConfig, CommonConfig, Config, ServerConfig};
+use crate::control::{ControlServer, ControlState, DEFAULT_SOCKET_PATH};
 use crate::error::{Error, Result};
 use crate::event::{EventHandler, LogLevel, LoggingEventHandler, VpnEvent, VpnState, VpnStats};
 use crate::script::{run_connect_script, run_disconnect_script, ScriptParams};
@@ -91,6 +92,9 @@ pub struct VpnEngine {
 
     /// Engine state
     state: Arc<RwLock<EngineState>>,
+
+    /// Control socket state (shared with control server)
+    control_state: Arc<RwLock<ControlState>>,
 }
 
 impl VpnEngine {
@@ -108,12 +112,18 @@ impl VpnEngine {
             }
         }
 
+        let role_str = match role {
+            VpnRole::Server => "server",
+            VpnRole::Client => "client",
+        };
+
         Ok(Self {
             config,
             role,
             event_handler: Arc::new(LoggingEventHandler),
             shutdown_tx: None,
             state: Arc::new(RwLock::new(EngineState::default())),
+            control_state: Arc::new(RwLock::new(ControlState::new(role_str))),
         })
     }
 
@@ -153,6 +163,26 @@ impl VpnEngine {
             self.shutdown_tx = Some(tx.clone());
             tx
         };
+
+        // Store shutdown handle in control state
+        {
+            let mut ctrl_state = self.control_state.write().await;
+            ctrl_state.shutdown_tx = Some(shutdown_tx.clone());
+        }
+
+        // Start control socket server if configured
+        let socket_path = self.config.common.control_socket.clone()
+            .unwrap_or_else(|| DEFAULT_SOCKET_PATH.to_string());
+
+        let control_state = self.control_state.clone();
+        let control_server = ControlServer::new(&socket_path, control_state);
+
+        // Spawn control server in background
+        tokio::spawn(async move {
+            if let Err(e) = control_server.start().await {
+                log::warn!("Control socket error: {}", e);
+            }
+        });
 
         match self.role {
             VpnRole::Server => self.start_server(shutdown_tx).await,
@@ -205,6 +235,15 @@ impl VpnEngine {
             }
             old
         };
+
+        // Update control state
+        {
+            let mut ctrl_state = self.control_state.write().await;
+            ctrl_state.state = new_state;
+            if new_state == VpnState::Connected {
+                ctrl_state.start_time = std::time::Instant::now();
+            }
+        }
 
         if old_state != new_state {
             self.emit_event(VpnEvent::StateChanged {

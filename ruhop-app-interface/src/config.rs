@@ -220,6 +220,10 @@ pub struct CommonConfig {
     /// Heartbeat interval in seconds
     #[serde(default = "default_heartbeat_interval")]
     pub heartbeat_interval: u64,
+
+    /// Path for the control socket (for `ruhop status` command)
+    #[serde(default)]
+    pub control_socket: Option<String>,
 }
 
 impl Default for CommonConfig {
@@ -230,6 +234,7 @@ impl Default for CommonConfig {
             log_level: default_log_level(),
             obfuscation: false,
             heartbeat_interval: default_heartbeat_interval(),
+            control_socket: None,
         }
     }
 }

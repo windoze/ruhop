@@ -1,0 +1,375 @@
+//! Control socket for IPC with running VPN instances
+//!
+//! This module provides a Unix domain socket (or named pipe on Windows)
+//! interface for querying and controlling a running VPN server or client.
+
+use std::net::IpAddr;
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
+use std::time::Duration;
+
+use serde::{Deserialize, Serialize};
+use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+use tokio::sync::RwLock;
+
+use crate::event::{VpnState, VpnStats};
+use crate::error::{Error, Result};
+
+/// Default socket path for the control socket
+#[cfg(unix)]
+pub const DEFAULT_SOCKET_PATH: &str = "/var/run/ruhop.sock";
+
+#[cfg(windows)]
+pub const DEFAULT_SOCKET_PATH: &str = r"\\.\pipe\ruhop";
+
+/// Request messages sent to the control socket
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "type")]
+pub enum ControlRequest {
+    /// Get current status and statistics
+    #[serde(rename = "status")]
+    Status,
+
+    /// Get list of connected clients (server only)
+    #[serde(rename = "clients")]
+    Clients,
+
+    /// Request graceful shutdown
+    #[serde(rename = "shutdown")]
+    Shutdown,
+}
+
+/// Response messages from the control socket
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "type")]
+pub enum ControlResponse {
+    /// Status response
+    #[serde(rename = "status")]
+    Status(StatusInfo),
+
+    /// Connected clients list
+    #[serde(rename = "clients")]
+    Clients(ClientsInfo),
+
+    /// Error response
+    #[serde(rename = "error")]
+    Error { message: String },
+
+    /// Success acknowledgment
+    #[serde(rename = "ok")]
+    Ok,
+}
+
+/// VPN status information
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StatusInfo {
+    /// Current VPN state
+    pub state: String,
+    /// Role (server or client)
+    pub role: String,
+    /// Uptime in seconds
+    pub uptime_secs: u64,
+    /// Bytes received
+    pub bytes_rx: u64,
+    /// Bytes transmitted
+    pub bytes_tx: u64,
+    /// Packets received
+    pub packets_rx: u64,
+    /// Packets transmitted
+    pub packets_tx: u64,
+    /// Number of active sessions (server only)
+    pub active_sessions: usize,
+    /// Local tunnel IP (if connected)
+    pub tunnel_ip: Option<String>,
+    /// Peer IP (if connected)
+    pub peer_ip: Option<String>,
+}
+
+/// Information about a connected client
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ClientInfo {
+    /// Session ID
+    pub session_id: u32,
+    /// Assigned IP address
+    pub assigned_ip: String,
+    /// Connection duration in seconds
+    pub connected_secs: u64,
+    /// Bytes received from this client
+    pub bytes_rx: u64,
+    /// Bytes transmitted to this client
+    pub bytes_tx: u64,
+}
+
+/// List of connected clients
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ClientsInfo {
+    /// List of connected clients
+    pub clients: Vec<ClientInfo>,
+}
+
+/// Shared state for the control socket server
+pub struct ControlState {
+    /// Current VPN state
+    pub state: VpnState,
+    /// VPN role
+    pub role: String,
+    /// Statistics
+    pub stats: VpnStats,
+    /// Start time
+    pub start_time: std::time::Instant,
+    /// Local tunnel IP
+    pub tunnel_ip: Option<IpAddr>,
+    /// Peer IP
+    pub peer_ip: Option<IpAddr>,
+    /// Connected clients (server only)
+    pub clients: Vec<ClientInfo>,
+    /// Shutdown sender
+    pub shutdown_tx: Option<tokio::sync::broadcast::Sender<()>>,
+}
+
+impl ControlState {
+    /// Create new control state
+    pub fn new(role: &str) -> Self {
+        Self {
+            state: VpnState::Disconnected,
+            role: role.to_string(),
+            stats: VpnStats::new(),
+            start_time: std::time::Instant::now(),
+            tunnel_ip: None,
+            peer_ip: None,
+            clients: Vec::new(),
+            shutdown_tx: None,
+        }
+    }
+
+    /// Convert to status info
+    pub fn to_status_info(&self) -> StatusInfo {
+        StatusInfo {
+            state: format!("{:?}", self.state),
+            role: self.role.clone(),
+            uptime_secs: self.start_time.elapsed().as_secs(),
+            bytes_rx: self.stats.bytes_rx,
+            bytes_tx: self.stats.bytes_tx,
+            packets_rx: self.stats.packets_rx,
+            packets_tx: self.stats.packets_tx,
+            active_sessions: self.stats.active_sessions,
+            tunnel_ip: self.tunnel_ip.map(|ip| ip.to_string()),
+            peer_ip: self.peer_ip.map(|ip| ip.to_string()),
+        }
+    }
+}
+
+/// Control socket server
+pub struct ControlServer {
+    socket_path: PathBuf,
+    state: Arc<RwLock<ControlState>>,
+}
+
+impl ControlServer {
+    /// Create a new control server
+    pub fn new(socket_path: impl AsRef<Path>, state: Arc<RwLock<ControlState>>) -> Self {
+        Self {
+            socket_path: socket_path.as_ref().to_path_buf(),
+            state,
+        }
+    }
+
+    /// Start the control server
+    #[cfg(unix)]
+    pub async fn start(&self) -> Result<()> {
+        use tokio::net::UnixListener;
+
+        // Remove existing socket file
+        let _ = std::fs::remove_file(&self.socket_path);
+
+        // Create parent directory if needed
+        if let Some(parent) = self.socket_path.parent() {
+            let _ = std::fs::create_dir_all(parent);
+        }
+
+        let listener = UnixListener::bind(&self.socket_path)
+            .map_err(|e| Error::Config(format!("Failed to bind control socket: {}", e)))?;
+
+        // Set socket permissions (owner read/write only)
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let perms = std::fs::Permissions::from_mode(0o600);
+            let _ = std::fs::set_permissions(&self.socket_path, perms);
+        }
+
+        log::info!("Control socket listening on {:?}", self.socket_path);
+
+        loop {
+            match listener.accept().await {
+                Ok((stream, _)) => {
+                    let state = self.state.clone();
+                    tokio::spawn(async move {
+                        if let Err(e) = Self::handle_connection_unix(stream, state).await {
+                            log::debug!("Control connection error: {}", e);
+                        }
+                    });
+                }
+                Err(e) => {
+                    log::warn!("Control socket accept error: {}", e);
+                }
+            }
+        }
+    }
+
+    #[cfg(unix)]
+    async fn handle_connection_unix(
+        stream: tokio::net::UnixStream,
+        state: Arc<RwLock<ControlState>>,
+    ) -> Result<()> {
+        let (reader, mut writer) = stream.into_split();
+        let mut reader = BufReader::new(reader);
+        let mut line = String::new();
+
+        // Read request (single line JSON)
+        reader.read_line(&mut line).await
+            .map_err(|e| Error::Config(format!("Failed to read request: {}", e)))?;
+
+        let request: ControlRequest = serde_json::from_str(line.trim())
+            .map_err(|e| Error::Config(format!("Invalid request: {}", e)))?;
+
+        let response = Self::handle_request(request, &state).await;
+
+        let response_json = serde_json::to_string(&response)
+            .map_err(|e| Error::Config(format!("Failed to serialize response: {}", e)))?;
+
+        writer.write_all(response_json.as_bytes()).await
+            .map_err(|e| Error::Config(format!("Failed to write response: {}", e)))?;
+        writer.write_all(b"\n").await
+            .map_err(|e| Error::Config(format!("Failed to write newline: {}", e)))?;
+
+        Ok(())
+    }
+
+    #[cfg(windows)]
+    pub async fn start(&self) -> Result<()> {
+        // Windows named pipe implementation would go here
+        // For now, return an error indicating it's not implemented
+        Err(Error::Config("Control socket not yet implemented on Windows".into()))
+    }
+
+    async fn handle_request(
+        request: ControlRequest,
+        state: &Arc<RwLock<ControlState>>,
+    ) -> ControlResponse {
+        match request {
+            ControlRequest::Status => {
+                let state = state.read().await;
+                ControlResponse::Status(state.to_status_info())
+            }
+            ControlRequest::Clients => {
+                let state = state.read().await;
+                ControlResponse::Clients(ClientsInfo {
+                    clients: state.clients.clone(),
+                })
+            }
+            ControlRequest::Shutdown => {
+                let state = state.read().await;
+                if let Some(ref tx) = state.shutdown_tx {
+                    let _ = tx.send(());
+                    ControlResponse::Ok
+                } else {
+                    ControlResponse::Error {
+                        message: "Shutdown not available".into(),
+                    }
+                }
+            }
+        }
+    }
+
+    /// Cleanup the socket file
+    pub fn cleanup(&self) {
+        let _ = std::fs::remove_file(&self.socket_path);
+    }
+}
+
+impl Drop for ControlServer {
+    fn drop(&mut self) {
+        self.cleanup();
+    }
+}
+
+/// Control socket client for querying a running VPN instance
+pub struct ControlClient {
+    socket_path: PathBuf,
+}
+
+impl ControlClient {
+    /// Create a new control client
+    pub fn new(socket_path: impl AsRef<Path>) -> Self {
+        Self {
+            socket_path: socket_path.as_ref().to_path_buf(),
+        }
+    }
+
+    /// Send a request and get a response
+    #[cfg(unix)]
+    pub async fn request(&self, request: ControlRequest) -> Result<ControlResponse> {
+        use tokio::net::UnixStream;
+
+        let stream = UnixStream::connect(&self.socket_path).await
+            .map_err(|e| Error::Config(format!(
+                "Failed to connect to control socket at {:?}: {}. Is the VPN running?",
+                self.socket_path, e
+            )))?;
+
+        let (reader, mut writer) = stream.into_split();
+        let mut reader = BufReader::new(reader);
+
+        // Send request
+        let request_json = serde_json::to_string(&request)
+            .map_err(|e| Error::Config(format!("Failed to serialize request: {}", e)))?;
+        writer.write_all(request_json.as_bytes()).await
+            .map_err(|e| Error::Config(format!("Failed to send request: {}", e)))?;
+        writer.write_all(b"\n").await
+            .map_err(|e| Error::Config(format!("Failed to send newline: {}", e)))?;
+
+        // Read response
+        let mut line = String::new();
+        tokio::time::timeout(Duration::from_secs(5), reader.read_line(&mut line)).await
+            .map_err(|_| Error::Config("Timeout waiting for response".into()))?
+            .map_err(|e| Error::Config(format!("Failed to read response: {}", e)))?;
+
+        let response: ControlResponse = serde_json::from_str(line.trim())
+            .map_err(|e| Error::Config(format!("Invalid response: {}", e)))?;
+
+        Ok(response)
+    }
+
+    #[cfg(windows)]
+    pub async fn request(&self, _request: ControlRequest) -> Result<ControlResponse> {
+        Err(Error::Config("Control socket not yet implemented on Windows".into()))
+    }
+
+    /// Get status from the running VPN
+    pub async fn status(&self) -> Result<StatusInfo> {
+        match self.request(ControlRequest::Status).await? {
+            ControlResponse::Status(info) => Ok(info),
+            ControlResponse::Error { message } => Err(Error::Config(message)),
+            _ => Err(Error::Config("Unexpected response".into())),
+        }
+    }
+
+    /// Get connected clients (server only)
+    pub async fn clients(&self) -> Result<ClientsInfo> {
+        match self.request(ControlRequest::Clients).await? {
+            ControlResponse::Clients(info) => Ok(info),
+            ControlResponse::Error { message } => Err(Error::Config(message)),
+            _ => Err(Error::Config("Unexpected response".into())),
+        }
+    }
+
+    /// Request shutdown
+    pub async fn shutdown(&self) -> Result<()> {
+        match self.request(ControlRequest::Shutdown).await? {
+            ControlResponse::Ok => Ok(()),
+            ControlResponse::Error { message } => Err(Error::Config(message)),
+            _ => Err(Error::Config("Unexpected response".into())),
+        }
+    }
+}
