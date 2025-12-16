@@ -246,8 +246,14 @@ impl VpnEngine {
         ));
 
         // Create TUN device
-        let tun_config = TunConfig::builder()
-            .name("ruhop")
+        // On macOS, don't set a name - let the system assign a utun device
+        #[allow(unused_mut)] // mut needed on non-macOS platforms
+        let mut tun_builder = TunConfig::builder();
+        #[cfg(not(target_os = "macos"))]
+        {
+            tun_builder = tun_builder.name("ruhop");
+        }
+        let tun_config = tun_builder
             .ipv4(server_config.tunnel_ip, server_config.tunnel_net()?.prefix_len())
             .mtu(common_config.mtu)
             .build()?;
@@ -660,8 +666,14 @@ impl VpnEngine {
             _ => return Err(Error::Config("IPv6 not yet supported for client".to_string())),
         };
 
-        let tun_config = TunConfig::builder()
-            .name("ruhop")
+        // On macOS, don't set a name - let the system assign a utun device
+        #[allow(unused_mut)] // mut needed on non-macOS platforms
+        let mut tun_builder = TunConfig::builder();
+        #[cfg(not(target_os = "macos"))]
+        {
+            tun_builder = tun_builder.name("ruhop");
+        }
+        let tun_config = tun_builder
             .ipv4_with_dest(tunnel_ipv4, mask, server_tunnel_ip)
             .mtu(common_config.mtu)
             .build()?;
