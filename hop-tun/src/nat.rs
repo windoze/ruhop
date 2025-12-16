@@ -210,9 +210,11 @@ impl NatManager {
             "-o", &rule.out_interface,
         ];
 
+        let snat_addr_str;
         if rule.use_snat {
             if let Some(ref addr) = rule.snat_address {
-                args.extend(["-j", "SNAT", "--to-source", &addr.to_string()]);
+                snat_addr_str = addr.to_string();
+                args.extend(["-j", "SNAT", "--to-source", &snat_addr_str]);
             } else {
                 return Err(Error::Nat("SNAT requires an address".into()));
             }
@@ -362,9 +364,11 @@ impl NatManager {
             "-o", &rule.out_interface,
         ];
 
+        let snat_addr_str;
         if rule.use_snat {
             if let Some(ref addr) = rule.snat_address {
-                args.extend(["-j", "SNAT", "--to-source", &addr.to_string()]);
+                snat_addr_str = addr.to_string();
+                args.extend(["-j", "SNAT", "--to-source", &snat_addr_str]);
             }
         } else {
             args.extend(["-j", "MASQUERADE"]);

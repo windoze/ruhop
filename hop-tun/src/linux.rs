@@ -4,7 +4,6 @@
 //! including advanced features like multi-queue, offloading, and netlink integration.
 
 use std::ffi::CString;
-use std::os::unix::io::RawFd;
 
 use crate::error::{Error, Result};
 
@@ -63,7 +62,7 @@ pub fn set_interface_flags(name: &str, flags: i32) -> Result<()> {
     ifr.ifr_ifru.ifru_flags = flags as i16;
 
     let result = unsafe {
-        libc::ioctl(socket, libc::SIOCSIFFLAGS as libc::c_ulong, &ifr)
+        libc::ioctl(socket, libc::SIOCSIFFLAGS as _, &ifr)
     };
 
     unsafe { libc::close(socket) };
@@ -77,7 +76,7 @@ pub fn set_interface_flags(name: &str, flags: i32) -> Result<()> {
 
 /// Bring an interface up
 pub fn bring_interface_up(name: &str) -> Result<()> {
-    set_interface_flags(name, libc::IFF_UP as i32 | libc::IFF_RUNNING as i32)
+    set_interface_flags(name, libc::IFF_UP | libc::IFF_RUNNING)
 }
 
 /// Bring an interface down

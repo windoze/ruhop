@@ -141,13 +141,36 @@ impl VpnEngine {
             return Err(Error::AlreadyRunning);
         }
 
-        let (shutdown_tx, _) = broadcast::channel(1);
-        self.shutdown_tx = Some(shutdown_tx.clone());
+        // Use existing shutdown channel if one was pre-created, otherwise create new
+        let shutdown_tx = if let Some(tx) = self.shutdown_tx.clone() {
+            tx
+        } else {
+            let (tx, _) = broadcast::channel(1);
+            self.shutdown_tx = Some(tx.clone());
+            tx
+        };
 
         match self.role {
             VpnRole::Server => self.start_server(shutdown_tx).await,
             VpnRole::Client => self.start_client(shutdown_tx).await,
         }
+    }
+
+    /// Get a shutdown handle that can be used to stop the engine from outside
+    ///
+    /// Returns None if the engine hasn't been started yet.
+    pub fn shutdown_handle(&self) -> Option<broadcast::Sender<()>> {
+        self.shutdown_tx.clone()
+    }
+
+    /// Create a shutdown handle before starting the engine
+    ///
+    /// This allows the caller to keep a handle that can be used to stop
+    /// the engine after it has been moved into a task.
+    pub fn create_shutdown_handle(&mut self) -> broadcast::Sender<()> {
+        let (shutdown_tx, _) = broadcast::channel(1);
+        self.shutdown_tx = Some(shutdown_tx.clone());
+        shutdown_tx
     }
 
     /// Stop the VPN engine

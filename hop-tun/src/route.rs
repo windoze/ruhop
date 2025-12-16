@@ -3,11 +3,42 @@
 //! This module provides cross-platform route management functionality
 //! for adding, removing, and querying routes associated with TUN interfaces.
 
+use std::ffi::CString;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 
 use ipnet::{IpNet, Ipv4Net, Ipv6Net};
 
 use crate::error::{Error, Result};
+
+/// Convert an interface name to its index
+#[cfg(unix)]
+fn get_interface_index(name: &str) -> Result<u32> {
+    let c_name = CString::new(name)
+        .map_err(|_| Error::Config("invalid interface name".into()))?;
+
+    // SAFETY: if_nametoindex is safe to call with a valid C string
+    let index = unsafe { libc::if_nametoindex(c_name.as_ptr()) };
+
+    if index == 0 {
+        return Err(Error::Route(format!(
+            "interface '{}' not found (os error {})",
+            name,
+            std::io::Error::last_os_error().raw_os_error().unwrap_or(0)
+        )));
+    }
+
+    Ok(index)
+}
+
+#[cfg(windows)]
+fn get_interface_index(name: &str) -> Result<u32> {
+    // On Windows, net-route handles interface index differently
+    // For now, return an error if interface is specified
+    Err(Error::Config(format!(
+        "interface routing by name not supported on Windows: {}",
+        name
+    )))
+}
 
 /// A network route entry
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -189,15 +220,27 @@ impl RouteManager {
             net_route = net_route.with_gateway(gw);
         }
 
-        // net-route uses ifindex instead of ifname
-        // Interface name to index conversion would need to be done separately if needed
+        // Convert interface name to index if specified
+        if let Some(ref iface) = route.interface {
+            let ifindex = get_interface_index(iface)?;
+            net_route = net_route.with_ifindex(ifindex);
+        }
 
-        self.handle
-            .add(&net_route)
-            .await
-            .map_err(|e| Error::Route(format!("failed to add route: {}", e)))?;
+        match self.handle.add(&net_route).await {
+            Ok(()) => {
+                log::info!("Added route: {}", route);
+            }
+            Err(e) => {
+                let err_str = e.to_string();
+                // Ignore "File exists" (EEXIST) - route already exists which is fine
+                if err_str.contains("File exists") || err_str.contains("os error 17") {
+                    log::debug!("Route already exists: {}", route);
+                } else {
+                    return Err(Error::Route(format!("failed to add route: {}", e)));
+                }
+            }
+        }
 
-        log::info!("Added route: {}", route);
         Ok(())
     }
 
@@ -208,6 +251,14 @@ impl RouteManager {
 
         if let Some(gw) = route.gateway {
             net_route = net_route.with_gateway(gw);
+        }
+
+        // Convert interface name to index if specified
+        if let Some(ref iface) = route.interface {
+            if let Ok(ifindex) = get_interface_index(iface) {
+                net_route = net_route.with_ifindex(ifindex);
+            }
+            // Ignore errors during deletion - interface may already be gone
         }
 
         self.handle

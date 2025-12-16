@@ -78,6 +78,9 @@ async fn run_server(config_path: PathBuf) -> Result<()> {
 
     info!("Configuration loaded from {:?}", config_path);
 
+    // Create shutdown handle before moving engine into task
+    let shutdown_tx = engine.create_shutdown_handle();
+
     // Start the engine
     let engine_handle = tokio::spawn(async move {
         if let Err(e) = engine.start().await {
@@ -90,8 +93,14 @@ async fn run_server(config_path: PathBuf) -> Result<()> {
 
     info!("Shutting down server...");
 
-    // Cancel the engine task
-    engine_handle.abort();
+    // Signal graceful shutdown
+    let _ = shutdown_tx.send(());
+
+    // Wait for the engine to finish (with timeout)
+    let _ = tokio::time::timeout(
+        std::time::Duration::from_secs(5),
+        engine_handle
+    ).await;
 
     Ok(())
 }
@@ -105,6 +114,9 @@ async fn run_client(config_path: PathBuf) -> Result<()> {
 
     info!("Configuration loaded from {:?}", config_path);
 
+    // Create shutdown handle before moving engine into task
+    let shutdown_tx = engine.create_shutdown_handle();
+
     // Start the engine in a task
     let engine_handle = tokio::spawn(async move {
         if let Err(e) = engine.start().await {
@@ -117,8 +129,14 @@ async fn run_client(config_path: PathBuf) -> Result<()> {
 
     info!("Shutting down client...");
 
-    // Cancel the engine task
-    engine_handle.abort();
+    // Signal graceful shutdown
+    let _ = shutdown_tx.send(());
+
+    // Wait for the engine to finish (with timeout)
+    let _ = tokio::time::timeout(
+        std::time::Duration::from_secs(5),
+        engine_handle
+    ).await;
 
     Ok(())
 }

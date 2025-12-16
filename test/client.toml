@@ -1,0 +1,16 @@
+# Ruhop VPN Client Configuration
+
+[common]
+key = "test-vpn-secret-key-2024"
+mtu = 1400
+log_level = "debug"
+obfuscation = false
+heartbeat_interval = 30
+
+[client]
+server = "192.168.2.60:4096"
+port_range = [4096, 4196]
+route_all_traffic = false
+auto_reconnect = true
+max_reconnect_attempts = 3
+reconnect_delay = 5
