@@ -12,7 +12,7 @@ use serde::{Deserialize, Serialize};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::sync::RwLock;
 
-use crate::event::{VpnState, VpnStats};
+use crate::event::VpnState;
 use crate::error::{Error, Result};
 
 /// Default socket path for the control socket
@@ -113,8 +113,6 @@ pub struct ControlState {
     pub state: VpnState,
     /// VPN role
     pub role: String,
-    /// Statistics
-    pub stats: VpnStats,
     /// Start time
     pub start_time: std::time::Instant,
     /// Local tunnel IP
@@ -133,7 +131,6 @@ impl ControlState {
         Self {
             state: VpnState::Disconnected,
             role: role.to_string(),
-            stats: VpnStats::new(),
             start_time: std::time::Instant::now(),
             tunnel_ip: None,
             peer_ip: None,
@@ -142,35 +139,100 @@ impl ControlState {
         }
     }
 
-    /// Convert to status info
-    pub fn to_status_info(&self) -> StatusInfo {
+    /// Convert to status info (with stats from shared stats)
+    pub fn to_status_info(&self, stats: &StatsSnapshot) -> StatusInfo {
         StatusInfo {
             state: format!("{:?}", self.state),
             role: self.role.clone(),
             uptime_secs: self.start_time.elapsed().as_secs(),
-            bytes_rx: self.stats.bytes_rx,
-            bytes_tx: self.stats.bytes_tx,
-            packets_rx: self.stats.packets_rx,
-            packets_tx: self.stats.packets_tx,
-            active_sessions: self.stats.active_sessions,
+            bytes_rx: stats.bytes_rx,
+            bytes_tx: stats.bytes_tx,
+            packets_rx: stats.packets_rx,
+            packets_tx: stats.packets_tx,
+            active_sessions: stats.active_sessions,
             tunnel_ip: self.tunnel_ip.map(|ip| ip.to_string()),
             peer_ip: self.peer_ip.map(|ip| ip.to_string()),
         }
     }
 }
 
+use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
+
+/// Shared statistics using atomic counters for lock-free access
+#[derive(Debug, Default)]
+pub struct SharedStats {
+    pub bytes_rx: AtomicU64,
+    pub bytes_tx: AtomicU64,
+    pub packets_rx: AtomicU64,
+    pub packets_tx: AtomicU64,
+    pub active_sessions: AtomicUsize,
+}
+
+impl SharedStats {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Record received bytes
+    pub fn record_rx(&self, bytes: usize) {
+        self.bytes_rx.fetch_add(bytes as u64, Ordering::Relaxed);
+        self.packets_rx.fetch_add(1, Ordering::Relaxed);
+    }
+
+    /// Record transmitted bytes
+    pub fn record_tx(&self, bytes: usize) {
+        self.bytes_tx.fetch_add(bytes as u64, Ordering::Relaxed);
+        self.packets_tx.fetch_add(1, Ordering::Relaxed);
+    }
+
+    /// Set active sessions count
+    pub fn set_active_sessions(&self, count: usize) {
+        self.active_sessions.store(count, Ordering::Relaxed);
+    }
+
+    /// Get a snapshot of current stats
+    pub fn snapshot(&self) -> StatsSnapshot {
+        StatsSnapshot {
+            bytes_rx: self.bytes_rx.load(Ordering::Relaxed),
+            bytes_tx: self.bytes_tx.load(Ordering::Relaxed),
+            packets_rx: self.packets_rx.load(Ordering::Relaxed),
+            packets_tx: self.packets_tx.load(Ordering::Relaxed),
+            active_sessions: self.active_sessions.load(Ordering::Relaxed),
+        }
+    }
+}
+
+/// Snapshot of stats at a point in time
+#[derive(Debug, Clone)]
+pub struct StatsSnapshot {
+    pub bytes_rx: u64,
+    pub bytes_tx: u64,
+    pub packets_rx: u64,
+    pub packets_tx: u64,
+    pub active_sessions: usize,
+}
+
+/// Reference to shared stats
+pub type SharedStatsRef = Arc<SharedStats>;
+
 /// Control socket server
 pub struct ControlServer {
     socket_path: PathBuf,
-    state: Arc<RwLock<ControlState>>,
+    control_state: Arc<RwLock<ControlState>>,
+    shared_stats: SharedStatsRef,
 }
 
 impl ControlServer {
     /// Create a new control server
-    pub fn new(socket_path: impl AsRef<Path>, state: Arc<RwLock<ControlState>>) -> Self {
+    pub fn new(
+        socket_path: impl AsRef<Path>,
+        control_state: Arc<RwLock<ControlState>>,
+        shared_stats: SharedStatsRef,
+    ) -> Self {
         Self {
             socket_path: socket_path.as_ref().to_path_buf(),
-            state,
+            control_state,
+            shared_stats,
         }
     }
 
@@ -203,9 +265,10 @@ impl ControlServer {
         loop {
             match listener.accept().await {
                 Ok((stream, _)) => {
-                    let state = self.state.clone();
+                    let control_state = self.control_state.clone();
+                    let shared_stats = self.shared_stats.clone();
                     tokio::spawn(async move {
-                        if let Err(e) = Self::handle_connection_unix(stream, state).await {
+                        if let Err(e) = Self::handle_connection_unix(stream, control_state, shared_stats).await {
                             log::debug!("Control connection error: {}", e);
                         }
                     });
@@ -220,7 +283,8 @@ impl ControlServer {
     #[cfg(unix)]
     async fn handle_connection_unix(
         stream: tokio::net::UnixStream,
-        state: Arc<RwLock<ControlState>>,
+        control_state: Arc<RwLock<ControlState>>,
+        shared_stats: SharedStatsRef,
     ) -> Result<()> {
         let (reader, mut writer) = stream.into_split();
         let mut reader = BufReader::new(reader);
@@ -233,7 +297,7 @@ impl ControlServer {
         let request: ControlRequest = serde_json::from_str(line.trim())
             .map_err(|e| Error::Config(format!("Invalid request: {}", e)))?;
 
-        let response = Self::handle_request(request, &state).await;
+        let response = Self::handle_request(request, &control_state, &shared_stats).await;
 
         let response_json = serde_json::to_string(&response)
             .map_err(|e| Error::Config(format!("Failed to serialize response: {}", e)))?;
@@ -255,22 +319,24 @@ impl ControlServer {
 
     async fn handle_request(
         request: ControlRequest,
-        state: &Arc<RwLock<ControlState>>,
+        control_state: &Arc<RwLock<ControlState>>,
+        shared_stats: &SharedStatsRef,
     ) -> ControlResponse {
         match request {
             ControlRequest::Status => {
-                let state = state.read().await;
-                ControlResponse::Status(state.to_status_info())
+                let ctrl = control_state.read().await;
+                let stats = shared_stats.snapshot();
+                ControlResponse::Status(ctrl.to_status_info(&stats))
             }
             ControlRequest::Clients => {
-                let state = state.read().await;
+                let ctrl = control_state.read().await;
                 ControlResponse::Clients(ClientsInfo {
-                    clients: state.clients.clone(),
+                    clients: ctrl.clients.clone(),
                 })
             }
             ControlRequest::Shutdown => {
-                let state = state.read().await;
-                if let Some(ref tx) = state.shutdown_tx {
+                let ctrl = control_state.read().await;
+                if let Some(ref tx) = ctrl.shutdown_tx {
                     let _ = tx.send(());
                     ControlResponse::Ok
                 } else {

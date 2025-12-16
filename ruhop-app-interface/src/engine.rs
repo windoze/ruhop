@@ -19,7 +19,7 @@ use hop_protocol::{
 use hop_tun::{Route, RouteManager, TunConfig, TunDevice};
 
 use crate::config::{ClientConfig, CommonConfig, Config, ServerConfig};
-use crate::control::{ControlServer, ControlState, DEFAULT_SOCKET_PATH};
+use crate::control::{ControlServer, ControlState, SharedStats, SharedStatsRef, DEFAULT_SOCKET_PATH};
 use crate::error::{Error, Result};
 use crate::event::{EventHandler, LogLevel, LoggingEventHandler, VpnEvent, VpnState, VpnStats};
 use crate::script::{run_connect_script, run_disconnect_script, ScriptParams};
@@ -58,8 +58,8 @@ struct EngineState {
     connected_at: Option<Instant>,
 }
 
-impl Default for EngineState {
-    fn default() -> Self {
+impl EngineState {
+    fn new() -> Self {
         Self {
             state: VpnState::Disconnected,
             stats: VpnStats::new(),
@@ -95,6 +95,9 @@ pub struct VpnEngine {
 
     /// Control socket state (shared with control server)
     control_state: Arc<RwLock<ControlState>>,
+
+    /// Shared statistics (atomic counters for lock-free access)
+    shared_stats: SharedStatsRef,
 }
 
 impl VpnEngine {
@@ -122,8 +125,9 @@ impl VpnEngine {
             role,
             event_handler: Arc::new(LoggingEventHandler),
             shutdown_tx: None,
-            state: Arc::new(RwLock::new(EngineState::default())),
+            state: Arc::new(RwLock::new(EngineState::new())),
             control_state: Arc::new(RwLock::new(ControlState::new(role_str))),
+            shared_stats: Arc::new(SharedStats::new()),
         })
     }
 
@@ -175,7 +179,8 @@ impl VpnEngine {
             .unwrap_or_else(|| DEFAULT_SOCKET_PATH.to_string());
 
         let control_state = self.control_state.clone();
-        let control_server = ControlServer::new(&socket_path, control_state);
+        let shared_stats = self.shared_stats.clone();
+        let control_server = ControlServer::new(&socket_path, control_state, shared_stats);
 
         // Spawn control server in background
         tokio::spawn(async move {
@@ -350,6 +355,7 @@ impl VpnEngine {
                 pool,
                 server_config.clone(),
                 shutdown_tx,
+                self.shared_stats.clone(),
             )
             .await;
 
@@ -402,6 +408,7 @@ impl VpnEngine {
         pool: Arc<Mutex<Ipv4Pool>>,
         server_config: ServerConfig,
         shutdown_tx: broadcast::Sender<()>,
+        shared_stats: SharedStatsRef,
     ) -> Result<()> {
         let mut shutdown_rx = shutdown_tx.subscribe();
 
@@ -413,7 +420,6 @@ impl VpnEngine {
         let ip_to_session: Arc<RwLock<HashMap<Ipv4Addr, u32>>> =
             Arc::new(RwLock::new(HashMap::new()));
 
-        let state = self.state.clone();
         let event_handler = self.event_handler.clone();
 
         // Wrap sockets in Arc for sharing
@@ -427,7 +433,7 @@ impl VpnEngine {
         let sessions_read = sessions.clone();
         let ip_to_session_read = ip_to_session.clone();
         let cipher_encrypt = cipher.clone();
-        let state_tun = state.clone();
+        let stats_tun = shared_stats.clone();
 
         let tun_to_udp = tokio::spawn(async move {
             let mut buf = vec![0u8; 2000];
@@ -457,9 +463,8 @@ impl VpnEngine {
                                                 .send_to(&encrypted, client.peer_addr)
                                                 .await;
 
-                                            // Update stats
-                                            let mut st = state_tun.write().await;
-                                            st.stats.record_tx(encrypted.len());
+                                            // Update stats (lock-free)
+                                            stats_tun.record_tx(encrypted.len());
                                         }
                                         Err(e) => {
                                             log::error!("Encryption error: {}", e);
@@ -487,7 +492,7 @@ impl VpnEngine {
             let ip_to_session_write = ip_to_session.clone();
             let cipher_decrypt = cipher.clone();
             let pool_alloc = pool.clone();
-            let state_udp = state.clone();
+            let stats_udp = shared_stats.clone();
             let event_handler_udp = event_handler.clone();
             let server_config_clone = server_config.clone();
 
@@ -496,11 +501,8 @@ impl VpnEngine {
                 loop {
                     match socket_read.recv_from(&mut buf).await {
                         Ok((n, peer_addr)) => {
-                            // Update stats
-                            {
-                                let mut st = state_udp.write().await;
-                                st.stats.record_rx(n);
-                            }
+                            // Update stats (lock-free)
+                            stats_udp.record_rx(n);
 
                             // Decrypt packet
                             let packet = match cipher_decrypt.decrypt(&buf[..n]) {
@@ -826,6 +828,7 @@ impl VpnEngine {
                 session,
                 server_addrs,
                 shutdown_tx,
+                self.shared_stats.clone(),
             )
             .await;
 
@@ -960,9 +963,9 @@ impl VpnEngine {
         session: Session,
         server_addrs: Vec<SocketAddr>,
         shutdown_tx: broadcast::Sender<()>,
+        shared_stats: SharedStatsRef,
     ) -> Result<()> {
         let mut shutdown_rx = shutdown_tx.subscribe();
-        let state = self.state.clone();
         let sid = session.id.value();
 
         // Sequence number counter
@@ -975,7 +978,7 @@ impl VpnEngine {
         let tun_read = tun.clone();
         let socket_write = socket.clone();
         let cipher_encrypt = cipher.clone();
-        let state_tun = state.clone();
+        let stats_tun = shared_stats.clone();
         let seq_tun = seq.clone();
         let server_addrs_tun = server_addrs.clone();
 
@@ -1000,8 +1003,8 @@ impl VpnEngine {
                                     break;
                                 }
 
-                                let mut st = state_tun.write().await;
-                                st.stats.record_tx(encrypted.len());
+                                // Update stats (lock-free)
+                                stats_tun.record_tx(encrypted.len());
                             }
                             Err(e) => {
                                 log::error!("Encryption error: {}", e);
@@ -1021,17 +1024,15 @@ impl VpnEngine {
         let tun_write = tun.clone();
         let socket_read = socket.clone();
         let cipher_decrypt = cipher.clone();
-        let state_udp = state.clone();
+        let stats_udp = shared_stats.clone();
 
         let udp_to_tun = tokio::spawn(async move {
             let mut buf = vec![0u8; 2000];
             loop {
                 match socket_read.recv_from(&mut buf).await {
                     Ok((n, _)) => {
-                        {
-                            let mut st = state_udp.write().await;
-                            st.stats.record_rx(n);
-                        }
+                        // Update stats (lock-free)
+                        stats_udp.record_rx(n);
 
                         let packet = match cipher_decrypt.decrypt(&buf[..n]) {
                             Ok(p) => p,
