@@ -61,16 +61,20 @@ mtu = 1400
 log_level = "info"
 
 [server]
-listen = "0.0.0.0:4096"
-port_range = [4096, 4196]
-tunnel_ip = "10.0.0.1"
-tunnel_network = "10.0.0.0/24"
+listen = "0.0.0.0"                # IP address to bind
+port_range = [4096, 4196]         # Server listens on ALL ports in this range
+tunnel_network = "10.0.0.0/24"    # Tunnel network (server uses first IP)
+# tunnel_ip = "10.0.0.1"          # Optional: override server tunnel IP
 dns = ["8.8.8.8"]
 enable_nat = true
 
 [client]
-server = "your-server.com:4096"
-port_range = [4096, 4196]
+# Single server host (no port - uses port_range):
+server = "your-server.com"
+# Or multiple hosts for multi-homed servers:
+# server = ["server1.com", "server2.com", "1.2.3.4"]
+
+port_range = [4096, 4196]         # Must match server's port_range
 route_all_traffic = true
 auto_reconnect = true
 ```
@@ -104,11 +108,11 @@ Options:
 ```
 
 The server will:
-- Listen on the configured address and port range
-- Accept client connections
+- Bind to ALL ports in the configured `port_range` simultaneously
+- Accept client connections on any of those ports
 - Allocate IP addresses from the tunnel network
 - Set up NAT if enabled
-- Handle port hopping for traffic obfuscation
+- Use port hopping when sending responses (random port selection)
 
 ### client
 
@@ -151,8 +155,8 @@ See [ruhop-app-interface](../ruhop-app-interface/README.md) for detailed configu
 key = "shared-secret"
 
 [server]
-listen = "0.0.0.0:4096"
-tunnel_ip = "10.0.0.1"
+listen = "0.0.0.0"
+port_range = [4096, 4196]
 tunnel_network = "10.0.0.0/24"
 ```
 
@@ -163,7 +167,8 @@ tunnel_network = "10.0.0.0/24"
 key = "shared-secret"
 
 [client]
-server = "vpn.example.com:4096"
+server = "vpn.example.com"
+port_range = [4096, 4196]
 ```
 
 ## Logging
@@ -255,7 +260,8 @@ sudo ruhop client -c client.toml -l debug
 
 ```toml
 [client]
-server = "vpn.example.com:4096"
+server = "vpn.example.com"
+port_range = [4096, 4196]
 auto_reconnect = true
 max_reconnect_attempts = 0  # Unlimited
 reconnect_delay = 5         # 5 seconds between attempts

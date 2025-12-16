@@ -156,18 +156,22 @@ obfuscation = false
 heartbeat_interval = 30
 
 [server]
-listen = "0.0.0.0:4096"
-port_range = [4096, 4196]
-tunnel_ip = "10.0.0.1"
-tunnel_network = "10.0.0.0/24"
+listen = "0.0.0.0"                # 监听 IP 地址
+port_range = [4096, 4196]         # 服务器监听此范围内的所有端口
+tunnel_network = "10.0.0.0/24"    # 隧道网络（服务器使用第一个 IP）
+# tunnel_ip = "10.0.0.1"          # 可选：覆盖服务器隧道 IP
 dns = ["8.8.8.8", "8.8.4.4"]
 max_clients = 100
 enable_nat = true
 nat_interface = "eth0"
 
 [client]
-server = "vpn.example.com:4096"
-port_range = [4096, 4196]
+# 单个服务器主机（无需端口 - 使用 port_range）：
+server = "vpn.example.com"
+# 或多个主机用于多地址服务器：
+# server = ["vpn1.example.com", "vpn2.example.com", "1.2.3.4"]
+
+port_range = [4096, 4196]         # 必须与服务器的 port_range 匹配
 tunnel_ip = "10.0.0.5"            # 可选：请求特定 IP
 route_all_traffic = true
 excluded_routes = ["192.168.1.0/24"]
@@ -178,6 +182,14 @@ reconnect_delay = 5
 on_connect = "/path/to/connect.sh"
 on_disconnect = "/path/to/disconnect.sh"
 ```
+
+### 端口跳跃
+
+VPN 使用端口跳跃进行流量混淆：
+
+- **服务器**：绑定 `port_range` 中的所有端口并同时监听
+- **客户端**：生成所有（服务器主机 × 端口范围）的组合，并向随机选择的地址发送数据包
+- 示例：2 个服务器主机和端口范围 [4096, 4196] = 202 个可能的目标地址
 
 ### 配置加载
 

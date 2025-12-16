@@ -6,7 +6,8 @@ A Rust implementation of the GoHop VPN protocol - a UDP-based VPN with port hopp
 
 ## Features
 
-- **Port Hopping**: Packets are sent to random ports within a configured range for traffic obfuscation
+- **Port Hopping**: Server listens on all ports in range; client sends to random ports for traffic obfuscation
+- **Multi-Address Server**: Client supports connecting to servers with multiple IP addresses
 - **AES-256-CBC Encryption**: Secure encryption with Snappy compression
 - **IPv4 and IPv6 Support**: Full dual-stack capability
 - **Cross-Platform**: Works on Linux, macOS, and Windows
@@ -55,23 +56,29 @@ obfuscation = false               # Enable packet obfuscation
 heartbeat_interval = 30           # Heartbeat interval in seconds
 
 [server]
-listen = "0.0.0.0:4096"           # Listen address
-port_range = [4096, 4196]         # Port hopping range
-tunnel_ip = "10.0.0.1"            # Server tunnel IP
-tunnel_network = "10.0.0.0/24"    # Client IP pool
+listen = "0.0.0.0"                # IP address to listen on
+port_range = [4096, 4196]         # Server listens on ALL ports in this range
+tunnel_network = "10.0.0.0/24"    # Tunnel network (server uses first IP)
+# tunnel_ip = "10.0.0.1"          # Optional: override server tunnel IP
 dns = ["8.8.8.8", "8.8.4.4"]      # DNS servers for clients
 max_clients = 100                 # Maximum concurrent clients
 enable_nat = true                 # Enable NAT/masquerading
 
 [client]
-server = "vpn.example.com:4096"   # Server address
-port_range = [4096, 4196]         # Port hopping range
+# Single server host:
+server = "vpn.example.com"
+# Or multiple hosts for multi-homed servers:
+# server = ["vpn1.example.com", "vpn2.example.com", "1.2.3.4"]
+
+port_range = [4096, 4196]         # Must match server's port_range
 route_all_traffic = true          # Route all traffic through VPN
 auto_reconnect = true             # Auto-reconnect on loss
 reconnect_delay = 5               # Reconnection delay in seconds
 on_connect = "/path/to/script"    # Script to run on connect
 on_disconnect = "/path/to/script" # Script to run on disconnect
 ```
+
+**Port Hopping**: The server binds to all ports in `port_range`. The client sends packets to randomly selected addresses from (hosts × ports). For example, with 2 server hosts and port range [4096, 4196], the client has 202 possible target addresses.
 
 ## Project Structure
 

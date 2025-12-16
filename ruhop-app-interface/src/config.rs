@@ -24,7 +24,7 @@ use crate::error::{Error, Result};
 ///
 /// # Server-specific settings
 /// [server]
-/// listen = "0.0.0.0:4096"
+/// listen = "0.0.0.0"
 /// port_range = [4096, 4196]
 /// tunnel_ip = "10.0.0.1"
 /// tunnel_network = "10.0.0.0/24"
@@ -127,17 +127,18 @@ heartbeat_interval = 30
 
 # Server configuration (used when running as server)
 [server]
-# Address to listen on
-listen = "0.0.0.0:4096"
+# IP address to listen on (binds to all ports in port_range)
+listen = "0.0.0.0"
 
 # Port range for port hopping [start, end]
+# Server listens on ALL ports in this range simultaneously
 port_range = [4096, 4196]
-
-# Server's tunnel IP address
-tunnel_ip = "10.0.0.1"
 
 # Tunnel network in CIDR notation (for IP allocation)
 tunnel_network = "10.0.0.0/24"
+
+# Server's tunnel IP address (optional, defaults to first IP in tunnel_network)
+# tunnel_ip = "10.0.0.1"
 
 # DNS servers to push to clients
 dns = ["8.8.8.8", "8.8.4.4"]
@@ -236,15 +237,23 @@ impl Default for CommonConfig {
 /// Server-specific configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ServerConfig {
-    /// Address to listen on
-    pub listen: SocketAddr,
+    /// IP address to listen on (e.g., "0.0.0.0" for all interfaces)
+    ///
+    /// Note: Port is not specified here - use `port_range` instead.
+    /// The server will bind to all ports in the range.
+    pub listen: IpAddr,
 
     /// Port range for port hopping [start, end]
+    ///
+    /// The server binds to ALL ports in this range simultaneously.
     #[serde(default = "default_port_range")]
     pub port_range: [u16; 2],
 
-    /// Server's tunnel IP address
-    pub tunnel_ip: Ipv4Addr,
+    /// Server's tunnel IP address (optional)
+    ///
+    /// If not specified, defaults to the first usable IP in `tunnel_network`.
+    /// For example, if tunnel_network is "10.0.0.0/24", tunnel_ip defaults to "10.0.0.1".
+    pub tunnel_ip: Option<Ipv4Addr>,
 
     /// Tunnel network in CIDR notation
     pub tunnel_network: String,
@@ -275,9 +284,20 @@ impl ServerConfig {
         }
 
         // Parse tunnel network to validate it
-        self.tunnel_network
+        let net = self
+            .tunnel_network
             .parse::<ipnet::Ipv4Net>()
             .map_err(|e| Error::Config(format!("invalid tunnel_network: {}", e)))?;
+
+        // If tunnel_ip is specified, validate it's within the network
+        if let Some(ip) = self.tunnel_ip {
+            if !net.contains(&ip) {
+                return Err(Error::Config(format!(
+                    "tunnel_ip {} is not within tunnel_network {}",
+                    ip, self.tunnel_network
+                )));
+            }
+        }
 
         Ok(())
     }
@@ -287,6 +307,35 @@ impl ServerConfig {
         self.tunnel_network
             .parse()
             .map_err(|e| Error::Config(format!("invalid tunnel_network: {}", e)))
+    }
+
+    /// Get the server's tunnel IP address
+    ///
+    /// Returns the configured `tunnel_ip` if set, otherwise derives the first
+    /// usable IP from `tunnel_network` (network address + 1).
+    ///
+    /// For example:
+    /// - tunnel_network = "10.0.0.0/24" → returns 10.0.0.1
+    /// - tunnel_network = "192.168.1.0/24" → returns 192.168.1.1
+    pub fn get_tunnel_ip(&self) -> Result<Ipv4Addr> {
+        if let Some(ip) = self.tunnel_ip {
+            return Ok(ip);
+        }
+
+        // Derive from tunnel_network: use network address + 1
+        let net = self.tunnel_net()?;
+        let network_addr: u32 = net.network().into();
+        let first_ip = Ipv4Addr::from(network_addr + 1);
+
+        // Verify it's within the network
+        if !net.contains(&first_ip) {
+            return Err(Error::Config(format!(
+                "cannot derive tunnel_ip from tunnel_network {}: network too small",
+                self.tunnel_network
+            )));
+        }
+
+        Ok(first_ip)
     }
 }
 
@@ -533,7 +582,7 @@ key = "test-key"
 mtu = 1400
 
 [server]
-listen = "0.0.0.0:4096"
+listen = "0.0.0.0"
 tunnel_ip = "10.0.0.1"
 tunnel_network = "10.0.0.0/24"
 "#;
@@ -543,7 +592,47 @@ tunnel_network = "10.0.0.0/24"
         assert!(config.server.is_some());
 
         let server = config.server.unwrap();
-        assert_eq!(server.tunnel_ip, Ipv4Addr::new(10, 0, 0, 1));
+        assert_eq!(server.tunnel_ip, Some(Ipv4Addr::new(10, 0, 0, 1)));
+        assert_eq!(server.get_tunnel_ip().unwrap(), Ipv4Addr::new(10, 0, 0, 1));
+    }
+
+    #[test]
+    fn test_server_config_default_tunnel_ip() {
+        let toml = r#"
+[common]
+key = "test-key"
+
+[server]
+listen = "0.0.0.0"
+tunnel_network = "10.0.0.0/24"
+"#;
+
+        let config = Config::from_toml(toml).unwrap();
+        let server = config.server.unwrap();
+
+        // tunnel_ip not set, should be None
+        assert!(server.tunnel_ip.is_none());
+
+        // get_tunnel_ip() should derive from tunnel_network
+        assert_eq!(server.get_tunnel_ip().unwrap(), Ipv4Addr::new(10, 0, 0, 1));
+    }
+
+    #[test]
+    fn test_server_config_different_network() {
+        let toml = r#"
+[common]
+key = "test-key"
+
+[server]
+listen = "0.0.0.0"
+tunnel_network = "192.168.100.0/24"
+"#;
+
+        let config = Config::from_toml(toml).unwrap();
+        let server = config.server.unwrap();
+
+        // Should derive 192.168.100.1 from network
+        assert_eq!(server.get_tunnel_ip().unwrap(), Ipv4Addr::new(192, 168, 100, 1));
     }
 
     #[test]
@@ -602,7 +691,7 @@ route_all_traffic = true
     fn test_missing_key_fails() {
         let toml = r#"
 [server]
-listen = "0.0.0.0:4096"
+listen = "0.0.0.0"
 tunnel_ip = "10.0.0.1"
 tunnel_network = "10.0.0.0/24"
 "#;

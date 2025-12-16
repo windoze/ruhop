@@ -6,7 +6,8 @@ GoHop VPN 协议的 Rust 实现 - 一个支持端口跳跃的 UDP VPN，用于�
 
 ## 特性
 
-- **端口跳跃**：数据包发送到配置范围内的随机端口，用于流量混淆
+- **端口跳跃**：服务器监听范围内所有端口；客户端发送到随机端口，用于流量混淆
+- **多地址服务器**：客户端支持连接到具有多个 IP 地址的服务器
 - **AES-256-CBC 加密**：带 Snappy 压缩的安全加密
 - **IPv4 和 IPv6 支持**：完整的双栈能力
 - **跨平台**：支持 Linux、macOS 和 Windows
@@ -55,23 +56,29 @@ obfuscation = false               # 启用数据包混淆
 heartbeat_interval = 30           # 心跳间隔（秒）
 
 [server]
-listen = "0.0.0.0:4096"           # 监听地址
-port_range = [4096, 4196]         # 端口跳跃范围
-tunnel_ip = "10.0.0.1"            # 服务器隧道 IP
-tunnel_network = "10.0.0.0/24"    # 客户端 IP 池
+listen = "0.0.0.0"                # 监听 IP 地址
+port_range = [4096, 4196]         # 服务器监听此范围内的所有端口
+tunnel_network = "10.0.0.0/24"    # 隧道网络（服务器使用第一个 IP）
+# tunnel_ip = "10.0.0.1"          # 可选：覆盖服务器隧道 IP
 dns = ["8.8.8.8", "8.8.4.4"]      # 客户端 DNS 服务器
 max_clients = 100                 # 最大并发客户端数
 enable_nat = true                 # 启用 NAT/伪装
 
 [client]
-server = "vpn.example.com:4096"   # 服务器地址
-port_range = [4096, 4196]         # 端口跳跃范围
+# 单个服务器主机（无需端口 - 使用 port_range）：
+server = "vpn.example.com"
+# 或多个主机用于多地址服务器：
+# server = ["vpn1.example.com", "vpn2.example.com", "1.2.3.4"]
+
+port_range = [4096, 4196]         # 必须与服务器的 port_range 匹配
 route_all_traffic = true          # 通过 VPN 路由所有流量
 auto_reconnect = true             # 断线自动重连
 reconnect_delay = 5               # 重连延迟（秒）
 on_connect = "/path/to/script"    # 连接时运行的脚本
 on_disconnect = "/path/to/script" # 断开时运行的脚本
 ```
+
+**端口跳跃**：服务器绑定 `port_range` 中的所有端口。客户端从（主机 × 端口）组合中随机选择目标地址发送数据包。例如，2 个服务器主机和端口范围 [4096, 4196]，客户端有 202 个可能的目标地址。
 
 ## 项目结构
 

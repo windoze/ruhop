@@ -254,8 +254,9 @@ impl VpnEngine {
         {
             tun_builder = tun_builder.name("ruhop");
         }
+        let tunnel_ip = server_config.get_tunnel_ip()?;
         let tun_config = tun_builder
-            .ipv4(server_config.tunnel_ip, server_config.tunnel_net()?.prefix_len())
+            .ipv4(tunnel_ip, server_config.tunnel_net()?.prefix_len())
             .mtu(common_config.mtu)
             .build()?;
 
@@ -264,7 +265,7 @@ impl VpnEngine {
         self.log(LogLevel::Info, format!("Created TUN device: {}", tun_name)).await;
 
         // Bind UDP sockets for all ports in the port range
-        let listen_ip = server_config.listen.ip();
+        let listen_ip = server_config.listen;
         let mut sockets = Vec::new();
         for port in server_config.port_range[0]..=server_config.port_range[1] {
             let addr = SocketAddr::new(listen_ip, port);
@@ -293,7 +294,7 @@ impl VpnEngine {
 
         self.set_state(VpnState::Connected).await;
         self.emit_event(VpnEvent::Connected {
-            tunnel_ip: IpAddr::V4(server_config.tunnel_ip),
+            tunnel_ip: IpAddr::V4(tunnel_ip),
             peer_ip: None,
         })
         .await;

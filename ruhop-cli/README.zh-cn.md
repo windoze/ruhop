@@ -61,16 +61,20 @@ mtu = 1400
 log_level = "info"
 
 [server]
-listen = "0.0.0.0:4096"
-port_range = [4096, 4196]
-tunnel_ip = "10.0.0.1"
-tunnel_network = "10.0.0.0/24"
+listen = "0.0.0.0"                # 监听 IP 地址
+port_range = [4096, 4196]         # 服务器监听此范围内的所有端口
+tunnel_network = "10.0.0.0/24"    # 隧道网络（服务器使用第一个 IP）
+# tunnel_ip = "10.0.0.1"          # 可选：覆盖服务器隧道 IP
 dns = ["8.8.8.8"]
 enable_nat = true
 
 [client]
-server = "your-server.com:4096"
-port_range = [4096, 4196]
+# 单个服务器主机（无需端口 - 使用 port_range）：
+server = "your-server.com"
+# 或多个主机用于多地址服务器：
+# server = ["server1.com", "server2.com", "1.2.3.4"]
+
+port_range = [4096, 4196]         # 必须与服务器的 port_range 匹配
 route_all_traffic = true
 auto_reconnect = true
 ```
@@ -151,8 +155,8 @@ ruhop gen-config [选项]
 key = "shared-secret"
 
 [server]
-listen = "0.0.0.0:4096"
-tunnel_ip = "10.0.0.1"
+listen = "0.0.0.0"
+port_range = [4096, 4196]
 tunnel_network = "10.0.0.0/24"
 ```
 
@@ -163,7 +167,8 @@ tunnel_network = "10.0.0.0/24"
 key = "shared-secret"
 
 [client]
-server = "vpn.example.com:4096"
+server = "vpn.example.com"
+port_range = [4096, 4196]
 ```
 
 ## 日志
@@ -255,7 +260,8 @@ sudo ruhop client -c client.toml -l debug
 
 ```toml
 [client]
-server = "vpn.example.com:4096"
+server = "vpn.example.com"
+port_range = [4096, 4196]
 auto_reconnect = true
 max_reconnect_attempts = 0  # 无限制
 reconnect_delay = 5         # 尝试间隔 5 秒

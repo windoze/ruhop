@@ -156,18 +156,22 @@ obfuscation = false
 heartbeat_interval = 30
 
 [server]
-listen = "0.0.0.0:4096"
-port_range = [4096, 4196]
-tunnel_ip = "10.0.0.1"
-tunnel_network = "10.0.0.0/24"
+listen = "0.0.0.0"                # IP address to bind
+port_range = [4096, 4196]         # Server listens on ALL ports in this range
+tunnel_network = "10.0.0.0/24"    # Tunnel network (server uses first IP)
+# tunnel_ip = "10.0.0.1"          # Optional: override server tunnel IP
 dns = ["8.8.8.8", "8.8.4.4"]
 max_clients = 100
 enable_nat = true
 nat_interface = "eth0"
 
 [client]
-server = "vpn.example.com:4096"
-port_range = [4096, 4196]
+# Single server host (no port needed - uses port_range):
+server = "vpn.example.com"
+# Or multiple hosts for multi-homed servers:
+# server = ["vpn1.example.com", "vpn2.example.com", "1.2.3.4"]
+
+port_range = [4096, 4196]         # Must match server's port_range
 tunnel_ip = "10.0.0.5"            # Optional: request specific IP
 route_all_traffic = true
 excluded_routes = ["192.168.1.0/24"]
@@ -178,6 +182,14 @@ reconnect_delay = 5
 on_connect = "/path/to/connect.sh"
 on_disconnect = "/path/to/disconnect.sh"
 ```
+
+### Port Hopping
+
+The VPN uses port hopping for traffic obfuscation:
+
+- **Server**: Binds to all ports in `port_range` and listens on all simultaneously
+- **Client**: Generates all combinations of (server hosts × port range) and sends packets to randomly selected addresses
+- Example: 2 server hosts with port range [4096, 4196] = 202 possible target addresses
 
 ### Configuration Loading
 
