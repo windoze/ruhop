@@ -3,7 +3,7 @@ name = "ruhop-cli"
 version = "0.1.0"
 edition = "2021"
 description = "Command-line interface for Ruhop VPN"
-license = "MIT OR Apache-2.0"
+license = "AGPL-3.0-or-later"
 
 [[bin]]
 name = "ruhop"

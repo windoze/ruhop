@@ -1,0 +1,222 @@
+# Ruhop
+
+GoHop VPN 协议的 Rust 实现 - 一个支持端口跳跃的 UDP VPN，用于流量混淆。
+
+[English](README.md)
+
+## 特性
+
+- **端口跳跃**：数据包发送到配置范围内的随机端口，用于流量混淆
+- **AES-256-CBC 加密**：带 Snappy 压缩的安全加密
+- **IPv4 和 IPv6 支持**：完整的双栈能力
+- **跨平台**：支持 Linux、macOS 和 Windows
+- **自动重连**：连接断开时自动重新连接
+- **NAT 支持**：服务器模式内置 NAT/伪装
+- **生命周期脚本**：在连接/断开事件时运行自定义脚本
+
+## 快速开始
+
+### 构建
+
+```bash
+# 构建所有 crate
+cargo build --release
+
+# CLI 二进制文件位于 target/release/ruhop
+```
+
+### 生成配置
+
+```bash
+./target/release/ruhop gen-config -o ruhop.toml
+```
+
+### 运行服务器
+
+```bash
+# 用你的设置编辑 ruhop.toml，然后：
+sudo ./target/release/ruhop server -c ruhop.toml
+```
+
+### 运行客户端
+
+```bash
+sudo ./target/release/ruhop client -c ruhop.toml
+```
+
+## 配置
+
+```toml
+[common]
+key = "your-secret-key"          # 预共享密钥（必需）
+mtu = 1400                        # MTU 大小
+log_level = "info"                # 日志级别
+obfuscation = false               # 启用数据包混淆
+heartbeat_interval = 30           # 心跳间隔（秒）
+
+[server]
+listen = "0.0.0.0:4096"           # 监听地址
+port_range = [4096, 4196]         # 端口跳跃范围
+tunnel_ip = "10.0.0.1"            # 服务器隧道 IP
+tunnel_network = "10.0.0.0/24"    # 客户端 IP 池
+dns = ["8.8.8.8", "8.8.4.4"]      # 客户端 DNS 服务器
+max_clients = 100                 # 最大并发客户端数
+enable_nat = true                 # 启用 NAT/伪装
+
+[client]
+server = "vpn.example.com:4096"   # 服务器地址
+port_range = [4096, 4196]         # 端口跳跃范围
+route_all_traffic = true          # 通过 VPN 路由所有流量
+auto_reconnect = true             # 断线自动重连
+reconnect_delay = 5               # 重连延迟（秒）
+on_connect = "/path/to/script"    # 连接时运行的脚本
+on_disconnect = "/path/to/script" # 断开时运行的脚本
+```
+
+## 项目结构
+
+```
+ruhop/
+├── hop-protocol/        # 核心协议库
+│   └── src/
+├── hop-tun/             # TUN 设备管理
+│   └── src/
+├── ruhop-app-interface/ # VPN 引擎接口
+│   └── src/
+├── ruhop-cli/           # 命令行界面
+│   └── src/
+└── docs/
+    └── PROTOCOL.md      # 协议规范
+```
+
+## Crate 说明
+
+| Crate | 描述 |
+|-------|-------------|
+| [hop-protocol](hop-protocol/) | 操作系统无关的协议库，用于数据包编解码、加密和会话管理 |
+| [hop-tun](hop-tun/) | 跨平台 TUN 设备管理、路由管理和 NAT 设置 |
+| [ruhop-app-interface](ruhop-app-interface/) | 高级 VPN 引擎接口，用于构建 CLI/GUI 应用 |
+| [ruhop-cli](ruhop-cli/) | 运行 Ruhop VPN 的命令行界面 |
+
+## 平台要求
+
+### Linux
+
+- Root 权限或 `CAP_NET_ADMIN` 能力
+- 已加载 TUN 内核模块（`modprobe tun`）
+
+### macOS
+
+- 直接 utun 访问需要 Root 权限
+- App Store 应用需要 NetworkExtension 授权
+
+### Windows
+
+- 管理员权限
+- 已安装 WinTun 驱动（https://www.wintun.net/）
+
+## 协议概述
+
+GoHop 协议使用 4 阶段连接生命周期：
+
+1. **INIT**：客户端发送 PSH（敲门）数据包以启动连接
+2. **HANDSHAKE**：服务器响应 IP 分配和密钥交换
+3. **WORKING**：通过加密 TUN 隧道传输数据
+4. **FIN**：优雅的会话终止
+
+### 数据包结构
+
+```
+┌──────────────────────────────────────────────────────────┐
+│                       加密块                              │
+├────────────┬─────────────────────────────────────────────┤
+│   16 字节  │                  密文                        │
+│     IV     ├─────────────────────┬───────────────────────┤
+│            │    16 字节头部       │    载荷 + 噪声        │
+└────────────┴─────────────────────┴───────────────────────┘
+```
+
+完整协议规范请参阅 [docs/PROTOCOL.md](docs/PROTOCOL.md)。
+
+## 开发构建
+
+```bash
+# 构建调试版本
+cargo build
+
+# 运行测试
+cargo test
+
+# 运行 linter
+cargo clippy
+
+# 格式化代码
+cargo fmt
+```
+
+## 作为库使用
+
+### 使用 ruhop-app-interface
+
+```rust
+use ruhop_app_interface::{Config, VpnEngine, VpnRole};
+
+#[tokio::main]
+async fn main() -> ruhop_app_interface::Result<()> {
+    let config = Config::load("ruhop.toml")?;
+    let mut engine = VpnEngine::new(config, VpnRole::Client)?;
+
+    let shutdown_tx = engine.create_shutdown_handle();
+
+    tokio::spawn(async move {
+        engine.start().await
+    });
+
+    // ... 等待关闭信号 ...
+    let _ = shutdown_tx.send(());
+    Ok(())
+}
+```
+
+### 使用 hop-protocol
+
+```rust
+use hop_protocol::{Cipher, Packet, Session};
+
+// 创建密码器
+let cipher = Cipher::new(b"my-secret-key");
+
+// 加密/解密数据
+let encrypted = cipher.encrypt(plaintext)?;
+let decrypted = cipher.decrypt(&encrypted)?;
+
+// 创建数据包
+let packet = Packet::data(seq, session_id, &payload);
+let bytes = packet.encode();
+```
+
+### 使用 hop-tun
+
+```rust
+use hop_tun::{TunDevice, TunConfig};
+
+let config = TunConfig::builder()
+    .name("tun0")
+    .ipv4("10.0.0.1", 24)
+    .mtu(1400)
+    .build()?;
+
+let mut device = TunDevice::create(config).await?;
+
+// 读写数据包
+let n = device.read(&mut buf).await?;
+device.write(&packet).await?;
+```
+
+## 许可证
+
+本项目采用 GNU Affero 通用公共许可证 v3.0 或更高版本（AGPL-3.0-or-later）授权。详情请参阅 [LICENSE](LICENSE)。
+
+## 致谢
+
+本项目是 [GoHop](https://github.com/bigeagle/gohop) 协议的 Rust 实现，原版由 Go 语言编写。

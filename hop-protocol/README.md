@@ -198,4 +198,4 @@ See [PROTOCOL.md](../docs/PROTOCOL.md) for the full protocol specification.
 
 ## License
 
-See the repository root for license information.
+AGPL-3.0-or-later. See [LICENSE](../LICENSE) for details.

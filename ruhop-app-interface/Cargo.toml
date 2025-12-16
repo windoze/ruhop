@@ -3,7 +3,7 @@ name = "ruhop-app-interface"
 version = "0.1.0"
 edition = "2021"
 description = "VPN engine interface for Ruhop - reusable across CLI and GUI applications"
-license = "MIT OR Apache-2.0"
+license = "AGPL-3.0-or-later"
 
 [dependencies]
 # Core protocol and TUN support

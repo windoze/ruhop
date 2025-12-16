@@ -1,0 +1,296 @@
+# ruhop-cli
+
+Ruhop VPN 的命令行界面。
+
+## 概述
+
+`ruhop-cli` 提供了一个命令行工具，用于以服务器或客户端模式运行 Ruhop VPN。它基于 `ruhop-app-interface` 构建，提供了一种从终端管理 VPN 连接的简单方法。
+
+## 安装
+
+### 从源码构建
+
+```bash
+# 构建发布版二进制文件
+cargo build --release -p ruhop-cli
+
+# 二进制文件位于 target/release/ruhop
+```
+
+### 安装
+
+```bash
+# 安装到 ~/.cargo/bin
+cargo install --path ruhop-cli
+```
+
+## 使用方法
+
+```
+ruhop [选项] <命令>
+
+命令:
+  server      作为 VPN 服务器运行
+  client      作为 VPN 客户端运行
+  gen-config  生成示例配置文件
+
+选项:
+  -c, --config <CONFIG>      配置文件路径 [默认: ruhop.toml]
+  -l, --log-level <LEVEL>    日志级别 (error, warn, info, debug, trace) [默认: info]
+  -h, --help                 打印帮助信息
+  -V, --version              打印版本信息
+```
+
+## 快速开始
+
+### 1. 生成配置
+
+```bash
+# 生成示例配置
+ruhop gen-config -o ruhop.toml
+```
+
+### 2. 编辑配置
+
+编辑 `ruhop.toml` 并设置你的预共享密钥和其他选项：
+
+```toml
+[common]
+key = "your-secret-key-here"
+mtu = 1400
+log_level = "info"
+
+[server]
+listen = "0.0.0.0:4096"
+port_range = [4096, 4196]
+tunnel_ip = "10.0.0.1"
+tunnel_network = "10.0.0.0/24"
+dns = ["8.8.8.8"]
+enable_nat = true
+
+[client]
+server = "your-server.com:4096"
+port_range = [4096, 4196]
+route_all_traffic = true
+auto_reconnect = true
+```
+
+### 3. 运行服务器
+
+```bash
+# 作为服务器运行（需要 root 权限）
+sudo ruhop server -c ruhop.toml
+```
+
+### 4. 运行客户端
+
+```bash
+# 作为客户端运行（需要 root 权限）
+sudo ruhop client -c ruhop.toml
+```
+
+## 命令
+
+### server
+
+作为 VPN 服务器运行。
+
+```bash
+ruhop server [选项]
+
+选项:
+  -c, --config <CONFIG>    配置文件路径 [默认: ruhop.toml]
+  -l, --log-level <LEVEL>  日志级别 [默认: info]
+```
+
+服务器将：
+- 在配置的地址和端口范围上监听
+- 接受客户端连接
+- 从隧道网络分配 IP 地址
+- 如果启用则设置 NAT
+- 处理端口跳跃以混淆流量
+
+### client
+
+作为 VPN 客户端运行。
+
+```bash
+ruhop client [选项]
+
+选项:
+  -c, --config <CONFIG>    配置文件路径 [默认: ruhop.toml]
+  -l, --log-level <LEVEL>  日志级别 [默认: info]
+```
+
+客户端将：
+- 连接到配置的服务器
+- 执行握手并接收 IP 分配
+- 创建 TUN 接口并配置路由
+- 通过 VPN 隧道路由流量
+- 连接断开时自动重连（如果启用）
+
+### gen-config
+
+生成示例配置文件。
+
+```bash
+ruhop gen-config [选项]
+
+选项:
+  -o, --output <OUTPUT>    输出路径 [默认: ruhop.toml]
+```
+
+## 配置
+
+详细配置选项请参阅 [ruhop-app-interface](../ruhop-app-interface/README.zh-cn.md)。
+
+### 最小服务器配置
+
+```toml
+[common]
+key = "shared-secret"
+
+[server]
+listen = "0.0.0.0:4096"
+tunnel_ip = "10.0.0.1"
+tunnel_network = "10.0.0.0/24"
+```
+
+### 最小客户端配置
+
+```toml
+[common]
+key = "shared-secret"
+
+[client]
+server = "vpn.example.com:4096"
+```
+
+## 日志
+
+使用 `-l` 标志控制日志详细程度：
+
+```bash
+# 最小日志
+ruhop -l error client
+
+# 默认日志
+ruhop -l info client
+
+# 详细日志
+ruhop -l debug client
+
+# 最大详细程度
+ruhop -l trace client
+```
+
+你也可以使用 `RUST_LOG` 环境变量：
+
+```bash
+RUST_LOG=debug ruhop client
+```
+
+## 信号处理
+
+CLI 处理以下信号进行优雅关闭：
+
+- `SIGINT` (Ctrl+C) - 启动优雅关闭
+- `SIGTERM` - 启动优雅关闭
+
+在 Windows 上，`Ctrl+C` 触发优雅关闭。
+
+## 生命周期脚本
+
+配置在连接/断开时运行的脚本：
+
+```toml
+[client]
+on_connect = "/usr/local/bin/vpn-up.sh"
+on_disconnect = "/usr/local/bin/vpn-down.sh"
+```
+
+脚本接收参数：`<本地IP> <对端IP> <前缀长度> <TUN设备>`
+
+示例 `vpn-up.sh`：
+
+```bash
+#!/bin/bash
+LOCAL_IP=$1
+PEER_IP=$2
+PREFIX=$3
+TUN_DEV=$4
+
+echo "VPN 已连接: $LOCAL_IP/$PREFIX 通过 $TUN_DEV"
+
+# 更新 DNS
+echo "nameserver 8.8.8.8" | sudo tee /etc/resolv.conf
+
+# 自定义路由
+ip route add 192.168.100.0/24 via $PEER_IP dev $TUN_DEV
+```
+
+## 要求
+
+- **Linux**：Root 权限或 `CAP_NET_ADMIN`
+- **macOS**：Root 权限
+- **Windows**：管理员权限，已安装 WinTun 驱动
+
+## 示例
+
+### 使用自定义端口范围的服务器
+
+```bash
+# 编辑配置使用端口 5000-5100
+# 然后运行：
+sudo ruhop server -c server.toml -l info
+```
+
+### 带调试日志的客户端
+
+```bash
+sudo ruhop client -c client.toml -l debug
+```
+
+### 带自动重连的客户端
+
+```toml
+[client]
+server = "vpn.example.com:4096"
+auto_reconnect = true
+max_reconnect_attempts = 0  # 无限制
+reconnect_delay = 5         # 尝试间隔 5 秒
+```
+
+## 退出码
+
+| 代码 | 描述 |
+|------|-------------|
+| 0    | 成功 |
+| 1    | 错误（配置、连接等） |
+
+## 故障排除
+
+### 权限被拒绝
+
+```bash
+# Linux/macOS：使用 sudo 运行
+sudo ruhop client
+
+# 或授予 capabilities（Linux）
+sudo setcap cap_net_admin=eip ./target/release/ruhop
+```
+
+### 连接超时
+
+- 检查服务器地址和端口
+- 验证防火墙允许端口范围内的 UDP 流量
+- 检查服务器是否正在运行
+
+### 路由配置失败
+
+- 确保没有冲突的路由存在
+- 检查隧道网络是否与本地网络重叠
+
+## 许可证
+
+AGPL-3.0-or-later。详情请参阅 [LICENSE](../LICENSE)。
