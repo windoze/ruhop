@@ -2,6 +2,7 @@
 //!
 //! This module contains the main VPN engine that handles both server and client modes.
 
+use rand::prelude::IndexedRandom;
 use std::collections::HashMap;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::sync::Arc;
@@ -262,13 +263,24 @@ impl VpnEngine {
         let tun_name = tun.name().to_string();
         self.log(LogLevel::Info, format!("Created TUN device: {}", tun_name)).await;
 
-        // Bind UDP socket
-        let socket = Arc::new(
-            UdpSocket::bind(server_config.listen)
+        // Bind UDP sockets for all ports in the port range
+        let listen_ip = server_config.listen.ip();
+        let mut sockets = Vec::new();
+        for port in server_config.port_range[0]..=server_config.port_range[1] {
+            let addr = SocketAddr::new(listen_ip, port);
+            let socket = UdpSocket::bind(addr)
                 .await
-                .map_err(|e| Error::Connection(format!("failed to bind UDP socket: {}", e)))?,
-        );
-        self.log(LogLevel::Info, format!("Listening on {}", server_config.listen)).await;
+                .map_err(|e| Error::Connection(format!("failed to bind UDP socket on {}: {}", addr, e)))?;
+            sockets.push(Arc::new(socket));
+        }
+        self.log(
+            LogLevel::Info,
+            format!(
+                "Listening on {}:{}-{}",
+                listen_ip, server_config.port_range[0], server_config.port_range[1]
+            ),
+        )
+        .await;
 
         // Setup routes
         let route_manager = RouteManager::new().await?;
@@ -290,7 +302,7 @@ impl VpnEngine {
         let result = self
             .run_server_loop(
                 Arc::new(tun),
-                socket,
+                sockets,
                 cipher,
                 pool,
                 server_config.clone(),
@@ -342,7 +354,7 @@ impl VpnEngine {
     async fn run_server_loop(
         &self,
         tun: Arc<TunDevice>,
-        socket: Arc<UdpSocket>,
+        sockets: Vec<Arc<UdpSocket>>,
         cipher: Cipher,
         pool: Arc<Mutex<Ipv4Pool>>,
         server_config: ServerConfig,
@@ -361,9 +373,14 @@ impl VpnEngine {
         let state = self.state.clone();
         let event_handler = self.event_handler.clone();
 
+        // Wrap sockets in Arc for sharing
+        let sockets = Arc::new(sockets);
+
         // Spawn TUN -> UDP task
+        // Use first socket for outbound (server responds on same port it received on,
+        // but for simplicity we use random socket from the pool)
         let tun_read = tun.clone();
-        let socket_write = socket.clone();
+        let sockets_write = sockets.clone();
         let sessions_read = sessions.clone();
         let ip_to_session_read = ip_to_session.clone();
         let cipher_encrypt = cipher.clone();
@@ -388,10 +405,13 @@ impl VpnEngine {
                                         buf[..n].to_vec(),
                                     );
 
-                                    // Encrypt and send
+                                    // Encrypt and send via random socket (port hopping)
                                     match cipher_encrypt.encrypt(&packet, 0) {
                                         Ok(encrypted) => {
-                                            let _ = socket_write
+                                            let socket = sockets_write
+                                                .choose(&mut rand::rng())
+                                                .unwrap();
+                                            let _ = socket
                                                 .send_to(&encrypted, client.peer_addr)
                                                 .await;
 
@@ -416,116 +436,125 @@ impl VpnEngine {
             }
         });
 
-        // Spawn UDP -> TUN task
-        let tun_write = tun.clone();
-        let socket_read = socket.clone();
-        let sessions_write = sessions.clone();
-        let ip_to_session_write = ip_to_session.clone();
-        let cipher_decrypt = cipher.clone();
-        let pool_alloc = pool.clone();
-        let state_udp = state.clone();
-        let event_handler_udp = event_handler.clone();
-        let server_config_clone = server_config.clone();
+        // Spawn UDP -> TUN tasks for each socket
+        let mut udp_tasks = Vec::new();
+        for socket in sockets.iter() {
+            let tun_write = tun.clone();
+            let socket_read = socket.clone();
+            let sockets_for_reply = sockets.clone();
+            let sessions_write = sessions.clone();
+            let ip_to_session_write = ip_to_session.clone();
+            let cipher_decrypt = cipher.clone();
+            let pool_alloc = pool.clone();
+            let state_udp = state.clone();
+            let event_handler_udp = event_handler.clone();
+            let server_config_clone = server_config.clone();
 
-        let udp_to_tun = tokio::spawn(async move {
-            let mut buf = vec![0u8; 2000];
-            loop {
-                match socket_read.recv_from(&mut buf).await {
-                    Ok((n, peer_addr)) => {
-                        // Update stats
-                        {
-                            let mut st = state_udp.write().await;
-                            st.stats.record_rx(n);
-                        }
-
-                        // Decrypt packet
-                        let packet = match cipher_decrypt.decrypt(&buf[..n]) {
-                            Ok(p) => p,
-                            Err(e) => {
-                                log::debug!("Decrypt error from {}: {}", peer_addr, e);
-                                continue;
+            let task = tokio::spawn(async move {
+                let mut buf = vec![0u8; 2000];
+                loop {
+                    match socket_read.recv_from(&mut buf).await {
+                        Ok((n, peer_addr)) => {
+                            // Update stats
+                            {
+                                let mut st = state_udp.write().await;
+                                st.stats.record_rx(n);
                             }
-                        };
 
-                        let sid = packet.header.sid;
-                        let flags = packet.header.flag;
-
-                        // Handle different packet types
-                        if flags.is_push() && !flags.is_ack() {
-                            // Knock/heartbeat packet - initiate or refresh session
-                            handle_server_knock(
-                                &sessions_write,
-                                &ip_to_session_write,
-                                &pool_alloc,
-                                &socket_read,
-                                &cipher_decrypt,
-                                &server_config_clone,
-                                sid,
-                                peer_addr,
-                                &event_handler_udp,
-                            )
-                            .await;
-                        } else if flags.is_handshake() && !flags.is_ack() {
-                            // Handshake request
-                            handle_server_handshake(
-                                &sessions_write,
-                                &ip_to_session_write,
-                                &pool_alloc,
-                                &socket_read,
-                                &cipher_decrypt,
-                                &server_config_clone,
-                                sid,
-                                peer_addr,
-                                &event_handler_udp,
-                            )
-                            .await;
-                        } else if flags.is_handshake() && flags.is_ack() {
-                            // Handshake confirmation from client
-                            let mut sessions = sessions_write.write().await;
-                            if let Some(client) = sessions.get_mut(&sid) {
-                                if client.session.state == SessionState::Handshake {
-                                    if let Err(e) = client.session.complete_handshake_v2(
-                                        client.address_pair.client.ip,
-                                        client.address_pair.client.mask,
-                                    ) {
-                                        log::error!("Failed to complete handshake: {}", e);
-                                    }
-                                    client.last_activity = Instant::now();
+                            // Decrypt packet
+                            let packet = match cipher_decrypt.decrypt(&buf[..n]) {
+                                Ok(p) => p,
+                                Err(e) => {
+                                    log::debug!("Decrypt error from {}: {}", peer_addr, e);
+                                    continue;
                                 }
-                            }
-                        } else if flags.is_finish() {
-                            // Client disconnecting
-                            handle_server_finish(
-                                &sessions_write,
-                                &ip_to_session_write,
-                                &pool_alloc,
-                                &socket_read,
-                                &cipher_decrypt,
-                                sid,
-                                peer_addr,
-                                &event_handler_udp,
-                            )
-                            .await;
-                        } else if flags.is_data() {
-                            // Data packet
-                            let sessions = sessions_write.read().await;
-                            if let Some(client) = sessions.get(&sid) {
-                                if client.session.state == SessionState::Working {
-                                    // Write to TUN
-                                    if let Err(e) = tun_write.write(&packet.payload).await {
-                                        log::error!("TUN write error: {}", e);
+                            };
+
+                            let sid = packet.header.sid;
+                            let flags = packet.header.flag;
+
+                            // Handle different packet types
+                            if flags.is_push() && !flags.is_ack() {
+                                // Knock/heartbeat packet - initiate or refresh session
+                                handle_server_knock_multi(
+                                    &sessions_write,
+                                    &ip_to_session_write,
+                                    &pool_alloc,
+                                    &server_config_clone,
+                                    sid,
+                                    peer_addr,
+                                    &event_handler_udp,
+                                )
+                                .await;
+                            } else if flags.is_handshake() && !flags.is_ack() {
+                                // Handshake request - reply via random socket
+                                let reply_socket = sockets_for_reply
+                                    .choose(&mut rand::rng())
+                                    .unwrap();
+                                handle_server_handshake(
+                                    &sessions_write,
+                                    &ip_to_session_write,
+                                    &pool_alloc,
+                                    reply_socket,
+                                    &cipher_decrypt,
+                                    &server_config_clone,
+                                    sid,
+                                    peer_addr,
+                                    &event_handler_udp,
+                                )
+                                .await;
+                            } else if flags.is_handshake() && flags.is_ack() {
+                                // Handshake confirmation from client
+                                let mut sessions = sessions_write.write().await;
+                                if let Some(client) = sessions.get_mut(&sid) {
+                                    if client.session.state == SessionState::Handshake {
+                                        if let Err(e) = client.session.complete_handshake_v2(
+                                            client.address_pair.client.ip,
+                                            client.address_pair.client.mask,
+                                        ) {
+                                            log::error!("Failed to complete handshake: {}", e);
+                                        }
+                                        client.last_activity = Instant::now();
                                     }
                                 }
+                            } else if flags.is_finish() {
+                                // Client disconnecting - reply via random socket
+                                let reply_socket = sockets_for_reply
+                                    .choose(&mut rand::rng())
+                                    .unwrap();
+                                handle_server_finish(
+                                    &sessions_write,
+                                    &ip_to_session_write,
+                                    &pool_alloc,
+                                    reply_socket,
+                                    &cipher_decrypt,
+                                    sid,
+                                    peer_addr,
+                                    &event_handler_udp,
+                                )
+                                .await;
+                            } else if flags.is_data() {
+                                // Data packet
+                                let sessions = sessions_write.read().await;
+                                if let Some(client) = sessions.get(&sid) {
+                                    if client.session.state == SessionState::Working {
+                                        // Write to TUN
+                                        if let Err(e) = tun_write.write(&packet.payload).await {
+                                            log::error!("TUN write error: {}", e);
+                                        }
+                                    }
+                                }
                             }
                         }
-                    }
-                    Err(e) => {
-                        log::error!("UDP recv error: {}", e);
-                        break;
+                        Err(e) => {
+                            log::error!("UDP recv error: {}", e);
+                            break;
+                        }
                     }
                 }
-            }
-        });
+            });
+            udp_tasks.push(task);
+        }
 
         // Spawn heartbeat task
         let sessions_hb = sessions.clone();
@@ -556,6 +585,16 @@ impl VpnEngine {
         });
 
         // Wait for shutdown or error
+        // Use futures::future::select_all to wait on any UDP task
+        let udp_tasks_future = async {
+            if !udp_tasks.is_empty() {
+                let (result, _idx, _remaining) = futures::future::select_all(udp_tasks).await;
+                result
+            } else {
+                Ok(())
+            }
+        };
+
         tokio::select! {
             _ = shutdown_rx.recv() => {
                 log::info!("Server shutdown requested");
@@ -563,7 +602,7 @@ impl VpnEngine {
             _ = tun_to_udp => {
                 log::error!("TUN to UDP task ended unexpectedly");
             }
-            _ = udp_to_tun => {
+            _ = udp_tasks_future => {
                 log::error!("UDP to TUN task ended unexpectedly");
             }
         }
@@ -588,13 +627,28 @@ impl VpnEngine {
         let common_config = &self.config.common;
 
         self.set_state(VpnState::Connecting).await;
-        self.log(LogLevel::Info, format!("Connecting to server: {}", client_config.server)).await;
+        self.log(LogLevel::Info, format!("Connecting to server: {:?}", client_config.server)).await;
 
         // Create cipher
         let cipher = create_cipher(common_config);
 
-        // Resolve server address
-        let server_addr = client_config.server_addr()?;
+        // Resolve all server addresses (hosts × port range)
+        let server_addrs = client_config.server_addrs()?;
+        self.log(
+            LogLevel::Info,
+            format!(
+                "Resolved {} server addresses ({} hosts × {} ports)",
+                server_addrs.len(),
+                client_config.resolve_server_ips()?.len(),
+                client_config.port_range[1] - client_config.port_range[0] + 1
+            ),
+        )
+        .await;
+
+        // Get a random address for initial connection
+        let initial_addr = client_config
+            .random_server_addr(&server_addrs)
+            .ok_or_else(|| Error::Config("no server addresses available".into()))?;
 
         // Create UDP socket
         let socket = Arc::new(
@@ -611,22 +665,31 @@ impl VpnEngine {
         self.set_state(VpnState::Handshaking).await;
         self.log(LogLevel::Info, "Performing handshake...").await;
 
-        // Send knock packet
+        // Send knock packets to multiple random addresses for port knocking
         let knock = Packet::knock(sid);
         let encrypted = cipher.encrypt(&knock, 0)?;
-        socket.send_to(&encrypted, server_addr).await?;
+        // Send knock to a few random addresses
+        for _ in 0..std::cmp::min(5, server_addrs.len()) {
+            if let Some(addr) = client_config.random_server_addr(&server_addrs) {
+                socket.send_to(&encrypted, addr).await?;
+            }
+        }
 
         // Start handshake
         session.start_handshake()?;
 
-        // Send handshake request
+        // Send handshake request to a random address
         let hs_req = Packet::handshake_request(sid);
         let encrypted = cipher.encrypt(&hs_req, 0)?;
-        socket.send_to(&encrypted, server_addr).await?;
+        let hs_addr = client_config
+            .random_server_addr(&server_addrs)
+            .unwrap_or(initial_addr);
+        socket.send_to(&encrypted, hs_addr).await?;
 
         // Wait for handshake response
         let mut buf = vec![0u8; 2000];
         let handshake_timeout = Duration::from_secs(10);
+        let server_addrs_clone = server_addrs.clone();
         let assigned_ip = tokio::time::timeout(handshake_timeout, async {
             loop {
                 let (n, _) = socket.recv_from(&mut buf).await?;
@@ -636,10 +699,14 @@ impl VpnEngine {
                     let (_, ip, mask) = packet.parse_handshake_response_v2()?;
                     session.complete_handshake_v2(ip, mask)?;
 
-                    // Send confirmation
+                    // Send confirmation to a random address
                     let confirm = Packet::handshake_confirm(sid);
                     let encrypted = cipher.encrypt(&confirm, 0)?;
-                    socket.send_to(&encrypted, server_addr).await?;
+                    let confirm_addr = server_addrs_clone
+                        .choose(&mut rand::rng())
+                        .copied()
+                        .unwrap_or(initial_addr);
+                    socket.send_to(&encrypted, confirm_addr).await?;
 
                     return Ok::<_, Error>((ip, mask));
                 }
@@ -682,9 +749,10 @@ impl VpnEngine {
         let tun_name = tun.name().to_string();
         self.log(LogLevel::Info, format!("Created TUN device: {}", tun_name)).await;
 
-        // Setup routes
+        // Setup routes (use first server IP for route exclusion)
         let route_manager = RouteManager::new().await?;
-        self.setup_client_routes(&route_manager, client_config, &tun_name, server_tunnel_ip, server_addr.ip())
+        let first_server_ip = client_config.first_server_ip()?;
+        self.setup_client_routes(&route_manager, client_config, &tun_name, server_tunnel_ip, first_server_ip)
             .await?;
 
         self.set_state(VpnState::Connected).await;
@@ -714,7 +782,7 @@ impl VpnEngine {
                 socket,
                 cipher,
                 session,
-                server_addr,
+                server_addrs,
                 shutdown_tx,
             )
             .await;
@@ -723,7 +791,7 @@ impl VpnEngine {
         run_disconnect_script(client_config.on_disconnect.as_deref(), &script_params).await;
 
         // Cleanup routes
-        self.cleanup_client_routes(&route_manager, client_config, &tun_name, server_tunnel_ip, server_addr.ip())
+        self.cleanup_client_routes(&route_manager, client_config, &tun_name, server_tunnel_ip, first_server_ip)
             .await;
 
         result
@@ -781,7 +849,7 @@ impl VpnEngine {
         socket: Arc<UdpSocket>,
         cipher: Cipher,
         session: Session,
-        server_addr: SocketAddr,
+        server_addrs: Vec<SocketAddr>,
         shutdown_tx: broadcast::Sender<()>,
     ) -> Result<()> {
         let mut shutdown_rx = shutdown_tx.subscribe();
@@ -791,12 +859,16 @@ impl VpnEngine {
         // Sequence number counter
         let seq = Arc::new(std::sync::atomic::AtomicU32::new(0));
 
+        // Server addresses for port hopping
+        let server_addrs = Arc::new(server_addrs);
+
         // Spawn TUN -> UDP task
         let tun_read = tun.clone();
         let socket_write = socket.clone();
         let cipher_encrypt = cipher.clone();
         let state_tun = state.clone();
         let seq_tun = seq.clone();
+        let server_addrs_tun = server_addrs.clone();
 
         let tun_to_udp = tokio::spawn(async move {
             let mut buf = vec![0u8; 2000];
@@ -808,7 +880,13 @@ impl VpnEngine {
 
                         match cipher_encrypt.encrypt(&packet, 0) {
                             Ok(encrypted) => {
-                                if let Err(e) = socket_write.send_to(&encrypted, server_addr).await {
+                                // Port hopping: select random server address
+                                let target_addr = server_addrs_tun
+                                    .choose(&mut rand::rng())
+                                    .copied()
+                                    .unwrap_or(server_addrs_tun[0]);
+
+                                if let Err(e) = socket_write.send_to(&encrypted, target_addr).await {
                                     log::error!("UDP send error: {}", e);
                                     break;
                                 }
@@ -875,6 +953,7 @@ impl VpnEngine {
         let socket_hb = socket.clone();
         let cipher_hb = cipher.clone();
         let heartbeat_interval = Duration::from_secs(self.config.common.heartbeat_interval);
+        let server_addrs_hb = server_addrs.clone();
 
         let heartbeat = tokio::spawn(async move {
             let mut ticker = interval(heartbeat_interval);
@@ -883,7 +962,12 @@ impl VpnEngine {
 
                 let hb = Packet::heartbeat_request(sid);
                 if let Ok(encrypted) = cipher_hb.encrypt(&hb, 0) {
-                    let _ = socket_hb.send_to(&encrypted, server_addr).await;
+                    // Port hopping: select random server address for heartbeat
+                    let target_addr = server_addrs_hb
+                        .choose(&mut rand::rng())
+                        .copied()
+                        .unwrap_or(server_addrs_hb[0]);
+                    let _ = socket_hb.send_to(&encrypted, target_addr).await;
                 }
             }
         });
@@ -893,10 +977,14 @@ impl VpnEngine {
             _ = shutdown_rx.recv() => {
                 log::info!("Client shutdown requested");
 
-                // Send FIN packet
+                // Send FIN packet to a random server address
                 let fin = Packet::finish_request(sid);
                 if let Ok(encrypted) = cipher.encrypt(&fin, 0) {
-                    let _ = socket.send_to(&encrypted, server_addr).await;
+                    let target_addr = server_addrs
+                        .choose(&mut rand::rng())
+                        .copied()
+                        .unwrap_or(server_addrs[0]);
+                    let _ = socket.send_to(&encrypted, target_addr).await;
                 }
             }
             _ = tun_to_udp => {
@@ -943,13 +1031,12 @@ fn extract_dst_ipv4(packet: &[u8]) -> Option<Ipv4Addr> {
     Some(Ipv4Addr::new(packet[16], packet[17], packet[18], packet[19]))
 }
 
+/// Handle knock packet (multi-socket version without socket param)
 #[allow(clippy::too_many_arguments)]
-async fn handle_server_knock(
+async fn handle_server_knock_multi(
     sessions: &RwLock<HashMap<u32, ClientSession>>,
     ip_to_session: &RwLock<HashMap<Ipv4Addr, u32>>,
     pool: &Mutex<Ipv4Pool>,
-    _socket: &UdpSocket,
-    _cipher: &Cipher,
     server_config: &ServerConfig,
     sid: u32,
     peer_addr: SocketAddr,

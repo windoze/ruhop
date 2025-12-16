@@ -1,7 +1,8 @@
 //! Configuration types for the VPN engine
 
+use rand::prelude::IndexedRandom;
 use serde::{Deserialize, Serialize};
-use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+use std::net::{IpAddr, Ipv4Addr, SocketAddr, ToSocketAddrs};
 use std::path::Path;
 
 use crate::error::{Error, Result};
@@ -31,7 +32,10 @@ use crate::error::{Error, Result};
 ///
 /// # Client-specific settings
 /// [client]
-/// server = "vpn.example.com:4096"
+/// # Single server host:
+/// server = "vpn.example.com"
+/// # Or multiple hosts: server = ["vpn1.example.com", "vpn2.example.com"]
+/// port_range = [4096, 4196]
 /// tunnel_ip = "10.0.0.2"  # Optional, assigned by server if not set
 /// route_all_traffic = true
 /// ```
@@ -149,10 +153,14 @@ enable_nat = true
 
 # Client configuration (used when running as client)
 [client]
-# Server address (required)
-server = "vpn.example.com:4096"
+# Server host(s) - hostname or IP, no port (required)
+# Can be a single host:
+server = "vpn.example.com"
+# Or multiple hosts for multi-homed servers:
+# server = ["vpn1.example.com", "vpn2.example.com", "1.2.3.4"]
 
 # Port range for port hopping (should match server)
+# All ports in this range will be used for sending packets
 port_range = [4096, 4196]
 
 # Specific tunnel IP to request (optional, assigned by server if not set)
@@ -282,13 +290,57 @@ impl ServerConfig {
     }
 }
 
+/// Server address configuration - can be a single host or multiple hosts
+///
+/// Examples:
+/// - Single host: `server = "vpn.example.com"` or `server = "1.2.3.4"`
+/// - Multiple hosts: `server = ["vpn1.example.com", "vpn2.example.com"]`
+///
+/// Note: Port is not specified here - it comes from the `port_range` setting.
+/// The client will use all ports in the range for port hopping.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum ServerAddress {
+    /// Single server host (hostname or IP address, no port)
+    Single(String),
+    /// Multiple server hosts for multi-homed servers
+    Multiple(Vec<String>),
+}
+
+impl ServerAddress {
+    /// Get all hosts as a slice
+    pub fn hosts(&self) -> Vec<&str> {
+        match self {
+            ServerAddress::Single(s) => vec![s.as_str()],
+            ServerAddress::Multiple(v) => v.iter().map(|s| s.as_str()).collect(),
+        }
+    }
+
+    /// Check if empty
+    pub fn is_empty(&self) -> bool {
+        match self {
+            ServerAddress::Single(s) => s.is_empty(),
+            ServerAddress::Multiple(v) => v.is_empty() || v.iter().all(|s| s.is_empty()),
+        }
+    }
+}
+
 /// Client-specific configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ClientConfig {
-    /// Server address
-    pub server: String,
+    /// Server host(s) - can be a single host or list of hosts
+    ///
+    /// Examples:
+    /// - `server = "vpn.example.com"`
+    /// - `server = ["vpn1.example.com", "vpn2.example.com", "1.2.3.4"]`
+    ///
+    /// Ports are determined by `port_range`, not specified here.
+    pub server: ServerAddress,
 
-    /// Port range for port hopping
+    /// Port range for port hopping [start, end]
+    ///
+    /// The client will send packets to random ports within this range.
+    /// Should match the server's port range.
     #[serde(default = "default_port_range")]
     pub port_range: [u16; 2],
 
@@ -363,20 +415,80 @@ impl ClientConfig {
         Ok(())
     }
 
-    /// Parse the server address
-    pub fn server_addr(&self) -> Result<SocketAddr> {
-        // Try parsing as SocketAddr first
-        if let Ok(addr) = self.server.parse::<SocketAddr>() {
-            return Ok(addr);
+    /// Resolve all server IP addresses from the configured hosts
+    ///
+    /// Returns a list of IP addresses resolved from all configured server hosts.
+    /// Each hostname may resolve to multiple IPs.
+    pub fn resolve_server_ips(&self) -> Result<Vec<IpAddr>> {
+        let mut ips = Vec::new();
+
+        for host in self.server.hosts() {
+            // Try parsing as IP address first
+            if let Ok(ip) = host.parse::<IpAddr>() {
+                ips.push(ip);
+                continue;
+            }
+
+            // Try DNS resolution - use port 0 as placeholder since we just want IPs
+            let addr_with_port = format!("{}:0", host);
+            match addr_with_port.to_socket_addrs() {
+                Ok(addrs) => {
+                    for addr in addrs {
+                        if !ips.contains(&addr.ip()) {
+                            ips.push(addr.ip());
+                        }
+                    }
+                }
+                Err(e) => {
+                    return Err(Error::Config(format!(
+                        "could not resolve server host '{}': {}",
+                        host, e
+                    )));
+                }
+            }
         }
 
-        // Try parsing as host:port
-        use std::net::ToSocketAddrs;
-        self.server
-            .to_socket_addrs()
-            .map_err(|e| Error::Config(format!("invalid server address '{}': {}", self.server, e)))?
+        if ips.is_empty() {
+            return Err(Error::Config("no server addresses could be resolved".into()));
+        }
+
+        Ok(ips)
+    }
+
+    /// Generate all server socket addresses from hosts and port range
+    ///
+    /// Combines all resolved server IPs with all ports in the configured range.
+    /// This is used for port hopping - packets are sent to random addresses from this pool.
+    pub fn server_addrs(&self) -> Result<Vec<SocketAddr>> {
+        let ips = self.resolve_server_ips()?;
+        let mut addrs = Vec::new();
+
+        for ip in ips {
+            for port in self.port_range[0]..=self.port_range[1] {
+                addrs.push(SocketAddr::new(ip, port));
+            }
+        }
+
+        Ok(addrs)
+    }
+
+    /// Get a random server address for port hopping
+    ///
+    /// Selects a random address from all available server addresses
+    /// (all IPs × all ports in range).
+    pub fn random_server_addr(&self, addrs: &[SocketAddr]) -> Option<SocketAddr> {
+        addrs.choose(&mut rand::rng()).copied()
+    }
+
+    /// Get the first server IP (for route exclusion)
+    ///
+    /// Returns the first resolved server IP address. Used for adding
+    /// routes to bypass the VPN for server traffic.
+    pub fn first_server_ip(&self) -> Result<IpAddr> {
+        self.resolve_server_ips()?
+            .into_iter()
             .next()
-            .ok_or_else(|| Error::Config(format!("could not resolve '{}'", self.server)))
+            .ok_or_else(|| Error::Config("no server addresses could be resolved".into()))
     }
 }
 
@@ -435,13 +547,13 @@ tunnel_network = "10.0.0.0/24"
     }
 
     #[test]
-    fn test_parse_client_config() {
+    fn test_parse_client_config_single_host() {
         let toml = r#"
 [common]
 key = "test-key"
 
 [client]
-server = "vpn.example.com:4096"
+server = "127.0.0.1"
 route_all_traffic = true
 "#;
 
@@ -449,8 +561,41 @@ route_all_traffic = true
         assert!(config.client.is_some());
 
         let client = config.client.unwrap();
-        assert_eq!(client.server, "vpn.example.com:4096");
+        assert!(matches!(client.server, ServerAddress::Single(_)));
         assert!(client.route_all_traffic);
+
+        // Test address generation
+        let addrs = client.server_addrs().unwrap();
+        // Default port range is 4096-4196, so 101 ports
+        assert_eq!(addrs.len(), 101);
+    }
+
+    #[test]
+    fn test_parse_client_config_multiple_hosts() {
+        let toml = r#"
+[common]
+key = "test-key"
+
+[client]
+server = ["127.0.0.1", "127.0.0.2"]
+port_range = [5000, 5009]
+route_all_traffic = true
+"#;
+
+        let config = Config::from_toml(toml).unwrap();
+        assert!(config.client.is_some());
+
+        let client = config.client.unwrap();
+        assert!(matches!(client.server, ServerAddress::Multiple(_)));
+        assert!(client.route_all_traffic);
+
+        // Test address generation: 2 hosts × 10 ports = 20 addresses
+        let addrs = client.server_addrs().unwrap();
+        assert_eq!(addrs.len(), 20);
+
+        // Verify IPs
+        let ips = client.resolve_server_ips().unwrap();
+        assert_eq!(ips.len(), 2);
     }
 
     #[test]
