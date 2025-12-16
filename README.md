@@ -4,6 +4,8 @@ A Rust implementation of the GoHop VPN protocol - a UDP-based VPN with port hopp
 
 [中文文档](README.zh-cn.md)
 
+> **Note**: This is not a full-fledged VPN solution. It lacks multi-user management and enterprise features. The primary purpose of this program is traffic encryption and obfuscation to evade Deep Packet Inspection (DPI). If you need a multi-user, enterprise-grade VPN solution, please look elsewhere. The security architecture and implementation of this software have not been independently audited or proven. Use at your own risk.
+
 ## Features
 
 - **Port Hopping**: Server listens on all ports in range; client sends to random ports for traffic obfuscation
