@@ -1,9 +1,11 @@
 [package]
 name = "ruhop-app-interface"
-version = "0.1.0"
-edition = "2021"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
 description = "VPN engine interface for Ruhop - reusable across CLI and GUI applications"
-license = "AGPL-3.0-or-later"
 
 [dependencies]
 # Core protocol and TUN support

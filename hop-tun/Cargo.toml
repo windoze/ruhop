@@ -1,9 +1,11 @@
 [package]
 name = "hop-tun"
-version = "0.1.0"
-edition = "2021"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
 description = "Cross-platform TUN device management for VPN implementations"
-license = "AGPL-3.0-or-later"
 keywords = ["tun", "tap", "vpn", "network", "tunnel"]
 categories = ["network-programming", "os"]
 

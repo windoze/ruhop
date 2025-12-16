@@ -45,6 +45,9 @@ struct ClientSession {
     peer_addr: SocketAddr,
     last_activity: Instant,
     address_pair: hop_protocol::AddressPair,
+    /// Index of the socket that most recently received a packet from this client.
+    /// Server must reply from this socket for NAT traversal to work.
+    last_recv_socket_idx: usize,
 }
 
 /// Internal engine state
@@ -406,12 +409,11 @@ impl VpnEngine {
                                         buf[..n].to_vec(),
                                     );
 
-                                    // Encrypt and send via random socket (port hopping)
+                                    // Encrypt and send via last received socket for NAT traversal
                                     match cipher_encrypt.encrypt(&packet, 0) {
                                         Ok(encrypted) => {
-                                            let socket = sockets_write
-                                                .choose(&mut rand::rng())
-                                                .unwrap();
+                                            // Use the socket that last received from this client
+                                            let socket = &sockets_write[client.last_recv_socket_idx];
                                             let _ = socket
                                                 .send_to(&encrypted, client.peer_addr)
                                                 .await;
@@ -439,10 +441,9 @@ impl VpnEngine {
 
         // Spawn UDP -> TUN tasks for each socket
         let mut udp_tasks = Vec::new();
-        for socket in sockets.iter() {
+        for (socket_idx, socket) in sockets.iter().enumerate() {
             let tun_write = tun.clone();
             let socket_read = socket.clone();
-            let sockets_for_reply = sockets.clone();
             let sessions_write = sessions.clone();
             let ip_to_session_write = ip_to_session.clone();
             let cipher_decrypt = cipher.clone();
@@ -484,23 +485,22 @@ impl VpnEngine {
                                     &server_config_clone,
                                     sid,
                                     peer_addr,
+                                    socket_idx,
                                     &event_handler_udp,
                                 )
                                 .await;
                             } else if flags.is_handshake() && !flags.is_ack() {
-                                // Handshake request - reply via random socket
-                                let reply_socket = sockets_for_reply
-                                    .choose(&mut rand::rng())
-                                    .unwrap();
+                                // Handshake request - reply via same socket for NAT traversal
                                 handle_server_handshake(
                                     &sessions_write,
                                     &ip_to_session_write,
                                     &pool_alloc,
-                                    reply_socket,
+                                    &socket_read,
                                     &cipher_decrypt,
                                     &server_config_clone,
                                     sid,
                                     peer_addr,
+                                    socket_idx,
                                     &event_handler_udp,
                                 )
                                 .await;
@@ -508,6 +508,9 @@ impl VpnEngine {
                                 // Handshake confirmation from client
                                 let mut sessions = sessions_write.write().await;
                                 if let Some(client) = sessions.get_mut(&sid) {
+                                    // Update last recv socket for NAT traversal
+                                    client.last_recv_socket_idx = socket_idx;
+                                    client.last_activity = Instant::now();
                                     if client.session.state == SessionState::Handshake {
                                         if let Err(e) = client.session.complete_handshake_v2(
                                             client.address_pair.client.ip,
@@ -515,19 +518,15 @@ impl VpnEngine {
                                         ) {
                                             log::error!("Failed to complete handshake: {}", e);
                                         }
-                                        client.last_activity = Instant::now();
                                     }
                                 }
                             } else if flags.is_finish() {
-                                // Client disconnecting - reply via random socket
-                                let reply_socket = sockets_for_reply
-                                    .choose(&mut rand::rng())
-                                    .unwrap();
+                                // Client disconnecting - reply via same socket for NAT traversal
                                 handle_server_finish(
                                     &sessions_write,
                                     &ip_to_session_write,
                                     &pool_alloc,
-                                    reply_socket,
+                                    &socket_read,
                                     &cipher_decrypt,
                                     sid,
                                     peer_addr,
@@ -535,9 +534,11 @@ impl VpnEngine {
                                 )
                                 .await;
                             } else if flags.is_data() {
-                                // Data packet
-                                let sessions = sessions_write.read().await;
-                                if let Some(client) = sessions.get(&sid) {
+                                // Data packet - update last recv socket for NAT traversal
+                                let mut sessions = sessions_write.write().await;
+                                if let Some(client) = sessions.get_mut(&sid) {
+                                    client.last_recv_socket_idx = socket_idx;
+                                    client.last_activity = Instant::now();
                                     if client.session.state == SessionState::Working {
                                         // Write to TUN
                                         if let Err(e) = tun_write.write(&packet.payload).await {
@@ -1041,12 +1042,15 @@ async fn handle_server_knock_multi(
     server_config: &ServerConfig,
     sid: u32,
     peer_addr: SocketAddr,
+    socket_idx: usize,
     _event_handler: &Arc<dyn EventHandler>,
 ) {
     let mut sessions_lock = sessions.write().await;
 
     // Check if session already exists
     if let Some(client) = sessions_lock.get_mut(&sid) {
+        // Update last recv socket for NAT traversal
+        client.last_recv_socket_idx = socket_idx;
         client.last_activity = Instant::now();
         return;
     }
@@ -1077,6 +1081,7 @@ async fn handle_server_knock_multi(
             peer_addr,
             last_activity: Instant::now(),
             address_pair,
+            last_recv_socket_idx: socket_idx,
         },
     );
 
@@ -1103,12 +1108,15 @@ async fn handle_server_handshake(
     server_config: &ServerConfig,
     sid: u32,
     peer_addr: SocketAddr,
+    socket_idx: usize,
     event_handler: &Arc<dyn EventHandler>,
 ) {
     let mut sessions_lock = sessions.write().await;
 
     // Get or create session
     let client = if let Some(c) = sessions_lock.get_mut(&sid) {
+        // Update last recv socket for NAT traversal
+        c.last_recv_socket_idx = socket_idx;
         c
     } else {
         // Session doesn't exist - might have been a knock we missed
@@ -1136,6 +1144,7 @@ async fn handle_server_handshake(
                 peer_addr,
                 last_activity: Instant::now(),
                 address_pair,
+                last_recv_socket_idx: socket_idx,
             },
         );
 
