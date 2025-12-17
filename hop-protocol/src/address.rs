@@ -351,6 +351,90 @@ impl<'a> IntoIterator for &'a AssignedAddresses {
     }
 }
 
+/// Handshake response data for protocol v4
+/// Contains assigned addresses and optional DNS servers
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct HandshakeResponse {
+    /// Assigned tunnel addresses
+    pub addresses: AssignedAddresses,
+    /// DNS servers to push to client (may be empty)
+    pub dns_servers: Vec<IpAddress>,
+}
+
+impl HandshakeResponse {
+    /// Create a handshake response without DNS servers (backwards compatible)
+    pub fn new(addresses: AssignedAddresses) -> Self {
+        Self {
+            addresses,
+            dns_servers: Vec::new(),
+        }
+    }
+
+    /// Create a handshake response with DNS servers
+    pub fn with_dns(addresses: AssignedAddresses, dns_servers: Vec<IpAddress>) -> Self {
+        Self {
+            addresses,
+            dns_servers,
+        }
+    }
+
+    /// Encode to wire format (v4)
+    /// Format: [addr_count: 1] [addrs...] [dns_count: 1] [dns_ips...]
+    /// DNS section is only included if dns_servers is non-empty
+    pub fn encode(&self) -> Vec<u8> {
+        let mut buf = self.addresses.encode();
+
+        // Always include DNS count for v4 protocol
+        buf.push(self.dns_servers.len() as u8);
+        for dns in &self.dns_servers {
+            buf.extend_from_slice(&dns.encode());
+        }
+
+        buf
+    }
+
+    /// Decode from wire format (v4)
+    /// Returns (response, bytes_consumed)
+    /// For backwards compatibility with v3, if there's no DNS section, returns empty dns_servers
+    pub fn decode(buf: &[u8]) -> crate::Result<(Self, usize)> {
+        // First decode addresses
+        let (addresses, addr_consumed) = AssignedAddresses::decode(buf)?;
+
+        // Check if there's a DNS section
+        if buf.len() <= addr_consumed {
+            // No DNS section (v3 compatibility)
+            return Ok((
+                Self {
+                    addresses,
+                    dns_servers: Vec::new(),
+                },
+                addr_consumed,
+            ));
+        }
+
+        let dns_count = buf[addr_consumed] as usize;
+        let mut offset = addr_consumed + 1;
+        let mut dns_servers = Vec::with_capacity(dns_count);
+
+        for _ in 0..dns_count {
+            if offset >= buf.len() {
+                return Err(crate::Error::InvalidPacket);
+            }
+            let (ip, consumed) = IpAddress::decode(&buf[offset..])?;
+            dns_servers.push(ip);
+            offset += consumed;
+        }
+
+        Ok((
+            Self {
+                addresses,
+                dns_servers,
+            },
+            offset,
+        ))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -531,5 +615,57 @@ mod tests {
             count += 1;
         }
         assert_eq!(count, 2);
+    }
+
+    #[test]
+    fn test_handshake_response_no_dns() {
+        let addrs = AssignedAddresses::single(IpAddress::from_ipv4_bytes([10, 0, 0, 1]), 24);
+        let response = HandshakeResponse::new(addrs.clone());
+
+        assert!(response.dns_servers.is_empty());
+
+        let encoded = response.encode();
+        // count(1) + ipv4(6) + dns_count(1) = 8 bytes
+        assert_eq!(encoded.len(), 8);
+
+        let (decoded, consumed) = HandshakeResponse::decode(&encoded).unwrap();
+        assert_eq!(decoded.addresses, addrs);
+        assert!(decoded.dns_servers.is_empty());
+        assert_eq!(consumed, 8);
+    }
+
+    #[test]
+    fn test_handshake_response_with_dns() {
+        let addrs = AssignedAddresses::single(IpAddress::from_ipv4_bytes([10, 0, 0, 1]), 24);
+        let dns = vec![
+            IpAddress::from_ipv4_bytes([8, 8, 8, 8]),
+            IpAddress::from_ipv4_bytes([8, 8, 4, 4]),
+        ];
+        let response = HandshakeResponse::with_dns(addrs.clone(), dns.clone());
+
+        assert_eq!(response.dns_servers.len(), 2);
+
+        let encoded = response.encode();
+        // count(1) + ipv4(6) + dns_count(1) + 2*dns_ipv4(5) = 18 bytes
+        assert_eq!(encoded.len(), 18);
+
+        let (decoded, consumed) = HandshakeResponse::decode(&encoded).unwrap();
+        assert_eq!(decoded.addresses, addrs);
+        assert_eq!(decoded.dns_servers, dns);
+        assert_eq!(consumed, 18);
+    }
+
+    #[test]
+    fn test_handshake_response_v3_compatibility() {
+        // Test that v4 decoder can handle v3 format (no DNS section)
+        let addrs = AssignedAddresses::single(IpAddress::from_ipv4_bytes([10, 0, 0, 1]), 24);
+        let v3_encoded = addrs.encode();
+        // count(1) + ipv4(6) = 7 bytes (no dns_count)
+        assert_eq!(v3_encoded.len(), 7);
+
+        let (decoded, consumed) = HandshakeResponse::decode(&v3_encoded).unwrap();
+        assert_eq!(decoded.addresses, addrs);
+        assert!(decoded.dns_servers.is_empty());
+        assert_eq!(consumed, 7);
     }
 }

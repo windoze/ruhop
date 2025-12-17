@@ -36,12 +36,13 @@
 
 pub mod config;
 pub mod control;
+pub mod dns;
 pub mod engine;
 pub mod error;
 pub mod event;
 pub mod script;
 
-pub use config::{ClientConfig, Config, ServerConfig};
+pub use config::{ClientConfig, Config, DnsConfig, ServerConfig};
 pub use control::{ControlClient, ControlRequest, ControlResponse, StatusInfo, ClientInfo, ClientsInfo, SharedStats, SharedStatsRef, DEFAULT_SOCKET_PATH};
 pub use engine::{VpnEngine, VpnRole};
 pub use error::{Error, Result};

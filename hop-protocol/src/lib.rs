@@ -12,7 +12,7 @@ mod pool;
 mod session;
 pub mod transport;
 
-pub use address::{AssignedAddress, AssignedAddresses, IpAddress};
+pub use address::{AssignedAddress, AssignedAddresses, HandshakeResponse, IpAddress};
 pub use crypto::Cipher;
 pub use error::{Error, Result};
 pub use flags::Flags;
@@ -25,7 +25,8 @@ pub use session::{Session, SessionId, SessionState};
 /// Version 0x01: Original protocol with IPv4 only
 /// Version 0x02: Added IPv6 support with typed address encoding
 /// Version 0x03: Added multi-address support for IP hopping
-pub const HOP_PROTO_VERSION: u8 = 0x03;
+/// Version 0x04: Added DNS server push in handshake response
+pub const HOP_PROTO_VERSION: u8 = 0x04;
 
 /// Default MTU
 pub const DEFAULT_MTU: usize = 1400;

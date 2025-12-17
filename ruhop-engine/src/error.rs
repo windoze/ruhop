@@ -67,6 +67,14 @@ pub enum Error {
     /// Script execution error
     #[error("script error: {0}")]
     Script(String),
+
+    /// DNS error
+    #[error("DNS error: {0}")]
+    Dns(String),
+
+    /// DNS configuration error
+    #[error("DNS configuration error: {0}")]
+    DnsConfig(String),
 }
 
 impl Error {

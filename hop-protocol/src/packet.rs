@@ -278,6 +278,21 @@ impl Packet {
         Self::new(PacketHeader::handshake_ack(sid), payload)
     }
 
+    /// Create a handshake response packet with addresses and DNS servers (v4 protocol)
+    /// Wire format v4: [version: 1] [addr_count: 1] [addrs...] [dns_count: 1] [dns_ips...]
+    pub fn handshake_response_v4(
+        sid: u32,
+        addresses: crate::AssignedAddresses,
+        dns_servers: Vec<crate::IpAddress>,
+    ) -> Self {
+        let response = crate::HandshakeResponse::with_dns(addresses, dns_servers);
+        let response_encoded = response.encode();
+        let mut payload = Vec::with_capacity(1 + response_encoded.len());
+        payload.push(crate::HOP_PROTO_VERSION);
+        payload.extend_from_slice(&response_encoded);
+        Self::new(PacketHeader::handshake_ack(sid), payload)
+    }
+
     /// Create a handshake confirmation packet (client -> server)
     pub fn handshake_confirm(sid: u32) -> Self {
         Self::new(PacketHeader::handshake_ack(sid), sid.to_be_bytes().to_vec())
@@ -382,6 +397,26 @@ impl Packet {
         let (addresses, _consumed) = crate::AssignedAddresses::decode(&self.payload[1..])?;
 
         Ok((version, addresses))
+    }
+
+    /// Parse handshake response payload with v4 DNS support
+    /// Returns (protocol_version, handshake_response) where handshake_response contains
+    /// both assigned addresses and DNS servers
+    /// Wire format v4: [version: 1] [addr_count: 1] [addrs...] [dns_count: 1] [dns_ips...]
+    /// For backwards compatibility, if DNS section is missing, returns empty dns_servers
+    pub fn parse_handshake_response_v4(&self) -> Result<(u8, crate::HandshakeResponse)> {
+        if self.payload.len() < 2 {
+            return Err(Error::Handshake(
+                "handshake response too short".to_string(),
+            ));
+        }
+
+        let version = self.payload[0];
+
+        // Decode the full response including DNS
+        let (response, _consumed) = crate::HandshakeResponse::decode(&self.payload[1..])?;
+
+        Ok((version, response))
     }
 
     /// Parse handshake error message
@@ -557,5 +592,62 @@ mod tests {
 
         assert!(knock.header.flag.is_push());
         assert_eq!(knock.parse_sid_payload().unwrap(), sid);
+    }
+
+    #[test]
+    fn test_handshake_v4_with_dns() {
+        use crate::{AssignedAddresses, IpAddress};
+
+        let addresses = AssignedAddresses::single(IpAddress::from_ipv4_bytes([10, 0, 0, 1]), 24);
+        let dns_servers = vec![
+            IpAddress::from_ipv4_bytes([8, 8, 8, 8]),
+            IpAddress::from_ipv4_bytes([1, 1, 1, 1]),
+        ];
+
+        let resp = Packet::handshake_response_v4(0x1234, addresses.clone(), dns_servers.clone());
+        assert!(resp.header.flag.is_handshake_ack());
+
+        // Payload: version(1) + count(1) + ipv4(6) + dns_count(1) + 2*dns_ipv4(5) = 19 bytes
+        assert_eq!(resp.payload.len(), 19);
+
+        // Parse using v4 method
+        let (version, response) = resp.parse_handshake_response_v4().unwrap();
+        assert_eq!(version, crate::HOP_PROTO_VERSION);
+        assert_eq!(response.addresses, addresses);
+        assert_eq!(response.dns_servers, dns_servers);
+    }
+
+    #[test]
+    fn test_handshake_v4_no_dns() {
+        use crate::{AssignedAddresses, IpAddress};
+
+        let addresses = AssignedAddresses::single(IpAddress::from_ipv4_bytes([10, 0, 0, 1]), 24);
+
+        let resp = Packet::handshake_response_v4(0x1234, addresses.clone(), vec![]);
+        assert!(resp.header.flag.is_handshake_ack());
+
+        // Payload: version(1) + count(1) + ipv4(6) + dns_count(1) = 9 bytes
+        assert_eq!(resp.payload.len(), 9);
+
+        // Parse using v4 method
+        let (version, response) = resp.parse_handshake_response_v4().unwrap();
+        assert_eq!(version, crate::HOP_PROTO_VERSION);
+        assert_eq!(response.addresses, addresses);
+        assert!(response.dns_servers.is_empty());
+    }
+
+    #[test]
+    fn test_handshake_v4_backward_compat() {
+        use crate::{AssignedAddresses, IpAddress};
+
+        // Create a v3 style packet (multi_ip, no DNS)
+        let addresses = AssignedAddresses::single(IpAddress::from_ipv4_bytes([10, 0, 0, 1]), 24);
+        let resp = Packet::handshake_response_multi_ip(0x1234, addresses.clone());
+
+        // Parse using v4 method - should work and return empty DNS
+        let (version, response) = resp.parse_handshake_response_v4().unwrap();
+        assert_eq!(version, crate::HOP_PROTO_VERSION);
+        assert_eq!(response.addresses, addresses);
+        assert!(response.dns_servers.is_empty());
     }
 }
