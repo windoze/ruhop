@@ -31,13 +31,10 @@ anyhow = "1.0"
 # Base64 encoding for share URLs
 base64 = "0.22"
 
-# QR code generation
-qrcode = "0.14"
-
-# Image output for QR codes
-image = { version = "0.25", default-features = false, features = ["png"] }
+# QR code generation (terminal display only, no image output)
+qrcode = { version = "0.14", default-features = false }
 
 # Windows service support
 [target.'cfg(windows)'.dependencies]
-windows-service = "0.7"
+windows-service = "0.8"
 hop-tun = { path = "../hop-tun" }

@@ -65,13 +65,8 @@ enum Commands {
         url: String,
     },
 
-    /// Generate a QR code from configuration
-    Qr {
-        /// Output file path for QR code image (PNG format)
-        /// If not specified, displays QR code in terminal
-        #[arg(short, long)]
-        output: Option<PathBuf>,
-    },
+    /// Generate a QR code from configuration (displays in terminal)
+    Qr,
 
     /// Windows service management (Windows only)
     #[cfg(windows)]
@@ -165,7 +160,7 @@ async fn async_main() -> Result<()> {
         Commands::GenConfig { output } => generate_config(output),
         Commands::Encode => encode_config(cli.config),
         Commands::Decode { url } => decode_url(&url),
-        Commands::Qr { output } => generate_qr(cli.config, output),
+        Commands::Qr => generate_qr(cli.config),
         #[cfg(windows)]
         Commands::Service { action } => handle_service_action(action, &cli.config),
         #[cfg(windows)]
@@ -461,7 +456,7 @@ fn decode_url(url: &str) -> Result<()> {
 }
 
 /// Generate a QR code from configuration
-fn generate_qr(config_path: PathBuf, output: Option<PathBuf>) -> Result<()> {
+fn generate_qr(config_path: PathBuf) -> Result<()> {
     use qrcode::QrCode;
 
     let config = load_config(&config_path)?;
@@ -489,29 +484,14 @@ fn generate_qr(config_path: PathBuf, output: Option<PathBuf>) -> Result<()> {
     let code = QrCode::new(url.as_bytes())
         .context("Failed to generate QR code")?;
 
-    match output {
-        Some(path) => {
-            // Save as PNG image
-            let image = code.render::<image::Luma<u8>>()
-                .min_dimensions(256, 256)
-                .build();
+    // Display in terminal using Unicode block characters
+    let string = code.render::<char>()
+        .quiet_zone(true)
+        .module_dimensions(2, 1)
+        .build();
 
-            image.save(&path)
-                .with_context(|| format!("Failed to save QR code to {:?}", path))?;
-
-            println!("QR code saved to {:?}", path);
-        }
-        None => {
-            // Display in terminal using Unicode block characters
-            let string = code.render::<char>()
-                .quiet_zone(true)
-                .module_dimensions(2, 1)
-                .build();
-
-            println!("{}", string);
-            println!("\nURL: {}", url);
-        }
-    }
+    println!("{}", string);
+    println!("\nURL: {}", url);
 
     Ok(())
 }
