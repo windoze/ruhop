@@ -322,13 +322,82 @@ impl RouteManager {
                 // Ignore "File exists" (EEXIST) - route already exists which is fine
                 if err_str.contains("File exists") || err_str.contains("os error 17") {
                     log::debug!("Route already exists: {}", route);
-                } else {
+                }
+                // On Windows, try using the route command as fallback
+                #[cfg(windows)]
+                {
+                    if let Err(fallback_err) = self.add_route_windows_fallback(route) {
+                        // If fallback also fails, return the original error
+                        return Err(Error::Route(format!("failed to add route: {}", e)));
+                    } else {
+                        log::info!("Added route via Windows route command: {}", route);
+                        return Ok(());
+                    }
+                }
+                #[cfg(not(windows))]
+                {
                     return Err(Error::Route(format!("failed to add route: {}", e)));
                 }
             }
         }
 
         Ok(())
+    }
+
+    /// Fallback route addition using Windows `route` command
+    #[cfg(windows)]
+    fn add_route_windows_fallback(&self, route: &Route) -> Result<()> {
+        use std::process::Command;
+
+        let dest = route.destination.addr();
+        let mask = route.destination.netmask();
+
+        let mut args = vec![
+            "add".to_string(),
+            dest.to_string(),
+            "mask".to_string(),
+            mask.to_string(),
+        ];
+
+        if let Some(gw) = route.gateway {
+            args.push(gw.to_string());
+        }
+
+        if let Some(metric) = route.metric {
+            args.push("metric".to_string());
+            args.push(metric.to_string());
+        }
+
+        // Add interface index if specified
+        if let Some(ref iface) = route.interface {
+            if let Ok(ifindex) = get_interface_index(iface) {
+                args.push("if".to_string());
+                args.push(ifindex.to_string());
+            }
+        }
+
+        let output = Command::new("route")
+            .args(&args)
+            .output()
+            .map_err(|e| Error::Route(format!("failed to execute route command: {}", e)))?;
+
+        if output.status.success() {
+            Ok(())
+        } else {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            // Check if route already exists (this is fine)
+            if stdout.contains("already exists") || stderr.contains("already exists") {
+                log::debug!("Route already exists: {}", route);
+                Ok(())
+            } else {
+                Err(Error::Route(format!(
+                    "route command failed: {} {}",
+                    stdout.trim(),
+                    stderr.trim()
+                )))
+            }
+        }
     }
 
     /// Remove a route from the routing table
@@ -348,13 +417,61 @@ impl RouteManager {
             // Ignore errors during deletion - interface may already be gone
         }
 
-        self.handle
-            .delete(&net_route)
-            .await
-            .map_err(|e| Error::Route(format!("failed to delete route: {}", e)))?;
+        match self.handle.delete(&net_route).await {
+            Ok(()) => {
+                log::info!("Deleted route: {}", route);
+            }
+            Err(e) => {
+                // On Windows, try using the route command as fallback
+                #[cfg(windows)]
+                {
+                    if self.delete_route_windows_fallback(route).is_ok() {
+                        log::info!("Deleted route via Windows route command: {}", route);
+                        return Ok(());
+                    }
+                }
+                return Err(Error::Route(format!("failed to delete route: {}", e)));
+            }
+        }
 
-        log::info!("Deleted route: {}", route);
         Ok(())
+    }
+
+    /// Fallback route deletion using Windows `route` command
+    #[cfg(windows)]
+    fn delete_route_windows_fallback(&self, route: &Route) -> Result<()> {
+        use std::process::Command;
+
+        let dest = route.destination.addr();
+        let mask = route.destination.netmask();
+
+        let mut args = vec![
+            "delete".to_string(),
+            dest.to_string(),
+            "mask".to_string(),
+            mask.to_string(),
+        ];
+
+        if let Some(gw) = route.gateway {
+            args.push(gw.to_string());
+        }
+
+        let output = Command::new("route")
+            .args(&args)
+            .output()
+            .map_err(|e| Error::Route(format!("failed to execute route command: {}", e)))?;
+
+        if output.status.success() {
+            Ok(())
+        } else {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            Err(Error::Route(format!(
+                "route delete failed: {} {}",
+                stdout.trim(),
+                stderr.trim()
+            )))
+        }
     }
 
     /// List all routes in the routing table
