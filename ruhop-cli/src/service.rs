@@ -82,12 +82,20 @@ pub fn install_service(config_path: &PathBuf, role: &str) -> Result<()> {
     // Store role in registry (config path is now fixed)
     save_service_config(&dest_config_path, role)?;
 
-    println!("Service '{}' installed successfully.", SERVICE_NAME);
-    println!("Configuration copied to: {}", dest_config_path);
-    println!("Role: {}", role);
     println!();
-    println!("To start the service, run: ruhop service start");
-    println!("Or use: sc start {}", SERVICE_NAME);
+    println!("Service '{}' Installed Successfully", SERVICE_NAME);
+    println!("=====================================");
+    println!("Display Name: {}", SERVICE_DISPLAY_NAME);
+    println!("Role:         {}", role);
+    println!("Config:       {}", dest_config_path);
+    println!("Log File:     {}\\ruhop-service.log", SERVICE_CONFIG_DIR);
+    println!();
+    println!("IMPORTANT: Make sure wintun.dll is in C:\\Windows\\System32");
+    println!();
+    println!("Next steps:");
+    println!("  Start service:  ruhop service start");
+    println!("  Check status:   ruhop service status");
+    println!("  View logs:      type {}\\ruhop-service.log", SERVICE_CONFIG_DIR);
 
     Ok(())
 }
@@ -257,7 +265,15 @@ pub fn uninstall_service() -> Result<()> {
 
     service.delete().context("Failed to delete service")?;
 
-    println!("Service '{}' uninstalled successfully.", SERVICE_NAME);
+    println!();
+    println!("Service '{}' Uninstalled Successfully", SERVICE_NAME);
+    println!("========================================");
+    println!();
+    println!("Note: Configuration and log files are preserved at:");
+    println!("  Config:   {}", SERVICE_CONFIG_PATH);
+    println!("  Log:      {}\\ruhop-service.log", SERVICE_CONFIG_DIR);
+    println!();
+    println!("To reinstall: ruhop -c <config_path> service install");
 
     Ok(())
 }
@@ -283,6 +299,9 @@ pub fn start_service() -> Result<()> {
         .context("Failed to start service")?;
 
     println!("Service '{}' started.", SERVICE_NAME);
+    println!();
+    println!("Check status: ruhop service status");
+    println!("View logs:    type {}\\ruhop-service.log", SERVICE_CONFIG_DIR);
 
     Ok(())
 }
@@ -305,7 +324,9 @@ pub fn stop_service() -> Result<()> {
 
     service.stop().context("Failed to stop service")?;
 
-    println!("Service '{}' stop requested.", SERVICE_NAME);
+    println!("Service '{}' stopped.", SERVICE_NAME);
+    println!();
+    println!("To start again: ruhop service start");
 
     Ok(())
 }
@@ -316,9 +337,20 @@ pub fn query_service_status() -> Result<()> {
     let service_manager =
         ServiceManager::local_computer(None::<&str>, manager_access).context("Failed to connect to service manager")?;
 
-    let service = service_manager
+    let service = match service_manager
         .open_service(SERVICE_NAME, ServiceAccess::QUERY_STATUS | ServiceAccess::QUERY_CONFIG)
-        .context("Failed to open service. Is it installed?")?;
+    {
+        Ok(s) => s,
+        Err(_) => {
+            println!("Service '{}' Status", SERVICE_NAME);
+            println!("========================");
+            println!("Status:  Not Installed");
+            println!();
+            println!("To install the service, run:");
+            println!("  ruhop -c <config_path> service install");
+            return Ok(());
+        }
+    };
 
     let status = service.query_status().context("Failed to query service status")?;
 
@@ -332,8 +364,33 @@ pub fn query_service_status() -> Result<()> {
         ServiceState::Paused => "Paused",
     };
 
-    println!("Service: {}", SERVICE_NAME);
-    println!("State:   {}", state_str);
+    println!("Service '{}' Status", SERVICE_NAME);
+    println!("========================");
+    println!("Display Name: {}", SERVICE_DISPLAY_NAME);
+    println!("Status:       {}", state_str);
+
+    // Show config info from registry
+    if let Ok((config_path, role)) = load_service_config() {
+        println!("Role:         {}", role);
+        println!("Config:       {}", config_path.display());
+    }
+
+    // Show log file location
+    let log_path = format!(r"{}\ruhop-service.log", SERVICE_CONFIG_DIR);
+    if std::path::Path::new(&log_path).exists() {
+        println!("Log File:     {}", log_path);
+    }
+
+    println!();
+    match status.current_state {
+        ServiceState::Stopped => {
+            println!("To start the service: ruhop service start");
+        }
+        ServiceState::Running => {
+            println!("To stop the service:  ruhop service stop");
+        }
+        _ => {}
+    }
 
     Ok(())
 }

@@ -32,7 +32,9 @@ ruhop [OPTIONS] <COMMAND>
 Commands:
   server      Run as VPN server
   client      Run as VPN client
+  status      Show status of a running VPN instance
   gen-config  Generate a sample configuration file
+  service     Windows service management (Windows only)
 
 Options:
   -c, --config <CONFIG>      Path to configuration file [default: ruhop.toml]
@@ -144,6 +146,67 @@ Options:
   -o, --output <OUTPUT>    Output path [default: ruhop.toml]
 ```
 
+### status
+
+Show status of a running VPN instance.
+
+```bash
+ruhop status [OPTIONS]
+
+Options:
+  -s, --socket <SOCKET>    Path to the control socket [default: /var/run/ruhop.sock]
+```
+
+### service (Windows only)
+
+Manage Ruhop as a Windows service. The service runs in the background and starts automatically on system boot.
+
+```powershell
+ruhop service <ACTION>
+
+Actions:
+  install    Install the service
+  uninstall  Uninstall the service
+  start      Start the service
+  stop       Stop the service
+  status     Query service status
+
+Options for install:
+  -r, --role <ROLE>    Role to run as (client or server) [default: client]
+```
+
+#### Install and Start Service
+
+```powershell
+# Install as client (default)
+ruhop -c C:\path\to\ruhop.toml service install
+
+# Or install as server
+ruhop -c C:\path\to\ruhop.toml service install --role server
+
+# Start the service
+ruhop service start
+
+# Check status
+ruhop service status
+```
+
+The service will:
+- Copy the configuration to `C:\ProgramData\Ruhop\ruhop.toml`
+- Start automatically on system boot
+- Run as the LocalSystem account
+- Log to `C:\ProgramData\Ruhop\ruhop-service.log`
+
+#### Uninstall Service
+
+```powershell
+# Stop first if running
+ruhop service stop
+
+# Uninstall
+ruhop service uninstall
+```
+
 ## Configuration
 
 See [ruhop-engine](../ruhop-engine/README.md) for detailed configuration options.
@@ -238,7 +301,34 @@ ip route add 192.168.100.0/24 via $PEER_IP dev $TUN_DEV
 
 - **Linux**: Root privileges or `CAP_NET_ADMIN`
 - **macOS**: Root privileges
-- **Windows**: Administrator privileges, WinTun driver installed
+- **Windows**: Administrator privileges, WinTun driver installed (`wintun.dll` in `C:\Windows\System32`)
+
+## Windows-Specific Features
+
+### Administrator Privileges
+
+On Windows, running the VPN requires administrator privileges. If you run `ruhop client` or `ruhop server` without admin rights, the program will prompt you to elevate via UAC.
+
+### Windows Firewall
+
+The VPN automatically configures Windows Firewall rules to allow UDP traffic for the VPN application. These rules are named "Ruhop VPN Inbound" and "Ruhop VPN Outbound".
+
+### Running as a Service
+
+For persistent VPN connections that survive reboots and user logouts, install Ruhop as a Windows service:
+
+```powershell
+# Run as Administrator
+ruhop -c C:\path\to\ruhop.toml service install
+ruhop service start
+```
+
+**Important**: When running as a service, `wintun.dll` **must** be placed in `C:\Windows\System32`. The service runs as LocalSystem and will not find the DLL if it's only in the same directory as the executable.
+
+The service configuration is stored in:
+- Config file: `C:\ProgramData\Ruhop\ruhop.toml`
+- Log file: `C:\ProgramData\Ruhop\ruhop-service.log`
+- Registry: `HKLM\SYSTEM\CurrentControlSet\Services\ruhop\Parameters`
 
 ## Examples
 

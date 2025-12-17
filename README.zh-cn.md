@@ -12,7 +12,7 @@ GoHop VPN 协议的 Rust 实现 - 一个支持端口跳跃的 UDP VPN，用于�
 - **多地址服务器**：客户端支持连接到具有多个 IP 地址的服务器
 - **AES-256-CBC 加密**：带 Snappy 压缩的安全加密
 - **IPv4 和 IPv6 支持**：完整的双栈能力
-- **跨平台**：支持 Linux、macOS 和 Windows
+- **跨平台**：支持 Linux、macOS 和 Windows（包括 Windows 服务支持）
 - **自动重连**：连接断开时自动重新连接
 - **NAT 支持**：服务器模式内置 NAT/伪装
 - **生命周期脚本**：在连接/断开事件时运行自定义脚本
@@ -45,6 +45,14 @@ sudo ./target/release/ruhop server -c ruhop.toml
 
 ```bash
 sudo ./target/release/ruhop client -c ruhop.toml
+```
+
+### 作为 Windows 服务运行
+
+```powershell
+# 安装并启动为 Windows 服务（以管理员身份运行）
+ruhop -c C:\path\to\ruhop.toml service install
+ruhop service start
 ```
 
 ## 配置
@@ -122,7 +130,9 @@ ruhop/
 ### Windows
 
 - 管理员权限
-- 已安装 WinTun 驱动（https://www.wintun.net/）
+- 已安装 WinTun 驱动（`wintun.dll` 位于 `C:\Windows\System32`）
+  - 下载地址：https://www.wintun.net/
+- 可选：作为 Windows 服务运行以保持持久连接
 
 ## 协议概述
 

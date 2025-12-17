@@ -32,7 +32,9 @@ ruhop [选项] <命令>
 命令:
   server      作为 VPN 服务器运行
   client      作为 VPN 客户端运行
+  status      显示运行中 VPN 实例的状态
   gen-config  生成示例配置文件
+  service     Windows 服务管理（仅 Windows）
 
 选项:
   -c, --config <CONFIG>      配置文件路径 [默认: ruhop.toml]
@@ -144,6 +146,67 @@ ruhop gen-config [选项]
   -o, --output <OUTPUT>    输出路径 [默认: ruhop.toml]
 ```
 
+### status
+
+显示运行中 VPN 实例的状态。
+
+```bash
+ruhop status [选项]
+
+选项:
+  -s, --socket <SOCKET>    控制套接字路径 [默认: /var/run/ruhop.sock]
+```
+
+### service（仅 Windows）
+
+将 Ruhop 作为 Windows 服务管理。服务在后台运行，系统启动时自动启动。
+
+```powershell
+ruhop service <操作>
+
+操作:
+  install    安装服务
+  uninstall  卸载服务
+  start      启动服务
+  stop       停止服务
+  status     查询服务状态
+
+install 选项:
+  -r, --role <ROLE>    运行角色（client 或 server）[默认: client]
+```
+
+#### 安装并启动服务
+
+```powershell
+# 安装为客户端（默认）
+ruhop -c C:\path\to\ruhop.toml service install
+
+# 或安装为服务器
+ruhop -c C:\path\to\ruhop.toml service install --role server
+
+# 启动服务
+ruhop service start
+
+# 检查状态
+ruhop service status
+```
+
+服务将：
+- 复制配置到 `C:\ProgramData\Ruhop\ruhop.toml`
+- 系统启动时自动启动
+- 以 LocalSystem 账户运行
+- 日志记录到 `C:\ProgramData\Ruhop\ruhop-service.log`
+
+#### 卸载服务
+
+```powershell
+# 如果正在运行，先停止
+ruhop service stop
+
+# 卸载
+ruhop service uninstall
+```
+
 ## 配置
 
 详细配置选项请参阅 [ruhop-engine](../ruhop-engine/README.zh-cn.md)。
@@ -238,7 +301,34 @@ ip route add 192.168.100.0/24 via $PEER_IP dev $TUN_DEV
 
 - **Linux**：Root 权限或 `CAP_NET_ADMIN`
 - **macOS**：Root 权限
-- **Windows**：管理员权限，已安装 WinTun 驱动
+- **Windows**：管理员权限，已安装 WinTun 驱动（`wintun.dll` 位于 `C:\Windows\System32`）
+
+## Windows 特定功能
+
+### 管理员权限
+
+在 Windows 上，运行 VPN 需要管理员权限。如果在没有管理员权限的情况下运行 `ruhop client` 或 `ruhop server`，程序会提示通过 UAC 提升权限。
+
+### Windows 防火墙
+
+VPN 会自动配置 Windows 防火墙规则以允许 VPN 应用程序的 UDP 流量。这些规则名为 "Ruhop VPN Inbound" 和 "Ruhop VPN Outbound"。
+
+### 作为服务运行
+
+如果需要在重启和用户注销后保持 VPN 连接，可以将 Ruhop 安装为 Windows 服务：
+
+```powershell
+# 以管理员身份运行
+ruhop -c C:\path\to\ruhop.toml service install
+ruhop service start
+```
+
+**重要**：作为服务运行时，`wintun.dll` **必须**放置在 `C:\Windows\System32` 目录下。服务以 LocalSystem 账户运行，如果 DLL 仅在可执行文件同目录下则无法找到。
+
+服务配置存储在：
+- 配置文件：`C:\ProgramData\Ruhop\ruhop.toml`
+- 日志文件：`C:\ProgramData\Ruhop\ruhop-service.log`
+- 注册表：`HKLM\SYSTEM\CurrentControlSet\Services\ruhop\Parameters`
 
 ## 示例
 
