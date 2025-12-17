@@ -12,6 +12,12 @@ use std::process::Command;
 
 use crate::error::{Error, Result};
 
+use windows_sys::Win32::Foundation::{CloseHandle, HANDLE};
+use windows_sys::Win32::Security::{
+    GetTokenInformation, TokenElevation, TOKEN_ELEVATION, TOKEN_QUERY,
+};
+use windows_sys::Win32::System::Threading::{GetCurrentProcess, OpenProcessToken};
+
 /// Check if WinTun driver is installed
 pub fn is_wintun_installed() -> bool {
     // Check for wintun.dll in system32 or alongside the executable
@@ -207,15 +213,75 @@ pub fn configure_firewall(interface: &str, enable: bool) -> Result<()> {
     Ok(())
 }
 
-/// Check if running with administrator privileges
+/// Check if running with administrator privileges using Windows API
 pub fn is_admin() -> bool {
-    // Try to access a file that requires admin
-    let test_path = r"C:\Windows\System32\config\system";
-    std::fs::metadata(test_path).is_ok()
+    unsafe {
+        let mut token_handle: HANDLE = std::ptr::null_mut();
+        let process_handle = GetCurrentProcess();
+
+        if OpenProcessToken(process_handle, TOKEN_QUERY, &mut token_handle) == 0 {
+            return false;
+        }
+
+        let mut elevation = TOKEN_ELEVATION { TokenIsElevated: 0 };
+        let mut return_length: u32 = 0;
+
+        let result = GetTokenInformation(
+            token_handle,
+            TokenElevation,
+            &mut elevation as *mut _ as *mut _,
+            std::mem::size_of::<TOKEN_ELEVATION>() as u32,
+            &mut return_length,
+        );
+
+        CloseHandle(token_handle);
+
+        result != 0 && elevation.TokenIsElevated != 0
+    }
 }
 
-/// Request UAC elevation
-pub fn request_elevation() -> Result<()> {
+/// Request UAC elevation by relaunching the current process with "runas"
+/// Returns Ok(true) if elevation was requested (process will exit)
+/// Returns Ok(false) if already elevated
+/// Returns Err if elevation failed
+pub fn request_elevation() -> Result<bool> {
+    if is_admin() {
+        return Ok(false);
+    }
+
+    // Get the current executable path and arguments
+    let exe_path = std::env::current_exe()
+        .map_err(|e| Error::PermissionDenied(format!("Failed to get executable path: {}", e)))?;
+
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    let args_str = args.join(" ");
+
+    // Use PowerShell Start-Process with -Verb RunAs for UAC elevation
+    let status = Command::new("powershell")
+        .args([
+            "-Command",
+            &format!(
+                "Start-Process -FilePath '{}' -ArgumentList '{}' -Verb RunAs",
+                exe_path.display(),
+                args_str.replace("'", "''") // Escape single quotes
+            ),
+        ])
+        .status()
+        .map_err(|e| Error::PermissionDenied(format!("Failed to request elevation: {}", e)))?;
+
+    if status.success() {
+        Ok(true) // Elevation requested, caller should exit
+    } else {
+        Err(Error::PermissionDenied(
+            "User declined elevation or elevation failed".into(),
+        ))
+    }
+}
+
+/// Check admin privileges and request elevation if needed
+/// Returns Ok(()) if running as admin or elevation was declined
+/// The caller should check is_admin() after this to determine if operations should proceed
+pub fn ensure_admin() -> Result<()> {
     if is_admin() {
         return Ok(());
     }

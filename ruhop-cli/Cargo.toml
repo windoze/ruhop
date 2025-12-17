@@ -31,3 +31,4 @@ anyhow = "1.0"
 # Windows service support
 [target.'cfg(windows)'.dependencies]
 windows-service = "0.7"
+hop-tun = { path = "../hop-tun" }

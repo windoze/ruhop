@@ -112,6 +112,19 @@ async fn main() -> Result<()> {
     // Initialize logging
     init_logging(&cli.log_level);
 
+    // Check for admin privileges on Windows for commands that need it
+    #[cfg(windows)]
+    {
+        let needs_admin = matches!(
+            cli.command,
+            Commands::Server | Commands::Client | Commands::Service { .. }
+        );
+
+        if needs_admin {
+            check_windows_admin()?;
+        }
+    }
+
     match cli.command {
         Commands::Server => run_server(cli.config).await,
         Commands::Client => run_client(cli.config).await,
@@ -121,6 +134,44 @@ async fn main() -> Result<()> {
         Commands::Service { action } => handle_service_action(action, &cli.config),
         #[cfg(windows)]
         Commands::ServiceRun { .. } => unreachable!(), // Handled above
+    }
+}
+
+/// Check for Windows administrator privileges and prompt for elevation if needed
+#[cfg(windows)]
+fn check_windows_admin() -> Result<()> {
+    use hop_tun::windows::{is_admin, request_elevation};
+
+    if is_admin() {
+        return Ok(());
+    }
+
+    eprintln!("This operation requires administrator privileges.");
+    eprintln!();
+    eprintln!("Would you like to restart with elevated permissions? [Y/n] ");
+
+    // Read user input
+    let mut input = String::new();
+    std::io::stdin().read_line(&mut input)?;
+    let input = input.trim().to_lowercase();
+
+    if input.is_empty() || input == "y" || input == "yes" {
+        match request_elevation() {
+            Ok(true) => {
+                // Elevation was requested, new process will start
+                eprintln!("Restarting with administrator privileges...");
+                std::process::exit(0);
+            }
+            Ok(false) => {
+                // Already elevated (shouldn't happen since we checked above)
+                Ok(())
+            }
+            Err(e) => {
+                anyhow::bail!("Failed to elevate privileges: {}", e);
+            }
+        }
+    } else {
+        anyhow::bail!("Administrator privileges are required to run the VPN.");
     }
 }
 
