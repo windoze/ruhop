@@ -328,7 +328,7 @@ impl RouteManager {
                 {
                     if let Err(fallback_err) = self.add_route_windows_fallback(route) {
                         // If fallback also fails, return the original error
-                        return Err(Error::Route(format!("failed to add route: {}", e)));
+                        return Err(Error::Route(format!("failed to add route: {}", fallback_err)));
                     } else {
                         log::info!("Added route via Windows route command: {}", route);
                         return Ok(());

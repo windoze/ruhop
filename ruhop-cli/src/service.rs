@@ -128,13 +128,14 @@ fn save_service_config(config_path: &str, role: &str) -> Result<()> {
     use std::process::Command;
 
     // Create the Parameters subkey and set values using reg.exe
-    // This is more reliable than using winreg crate
+    // Use HKLM prefix for the full registry path
+    let full_key = format!("HKLM\\{}", SERVICE_REGISTRY_KEY);
 
     // Set ConfigPath
     let output = Command::new("reg")
         .args([
             "add",
-            SERVICE_REGISTRY_KEY,
+            &full_key,
             "/v", "ConfigPath",
             "/t", "REG_SZ",
             "/d", config_path,
@@ -144,9 +145,12 @@ fn save_service_config(config_path: &str, role: &str) -> Result<()> {
         .context("Failed to run reg command")?;
 
     if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        let stdout = String::from_utf8_lossy(&output.stdout);
         anyhow::bail!(
-            "Failed to save ConfigPath to registry: {}",
-            String::from_utf8_lossy(&output.stderr)
+            "Failed to save ConfigPath to registry: {} {}",
+            stdout.trim(),
+            stderr.trim()
         );
     }
 
@@ -154,7 +158,7 @@ fn save_service_config(config_path: &str, role: &str) -> Result<()> {
     let output = Command::new("reg")
         .args([
             "add",
-            SERVICE_REGISTRY_KEY,
+            &full_key,
             "/v", "Role",
             "/t", "REG_SZ",
             "/d", role,
@@ -164,9 +168,12 @@ fn save_service_config(config_path: &str, role: &str) -> Result<()> {
         .context("Failed to run reg command")?;
 
     if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        let stdout = String::from_utf8_lossy(&output.stdout);
         anyhow::bail!(
-            "Failed to save Role to registry: {}",
-            String::from_utf8_lossy(&output.stderr)
+            "Failed to save Role to registry: {} {}",
+            stdout.trim(),
+            stderr.trim()
         );
     }
 
@@ -177,11 +184,14 @@ fn save_service_config(config_path: &str, role: &str) -> Result<()> {
 fn load_service_config() -> Result<(PathBuf, String)> {
     use std::process::Command;
 
+    // Use HKLM prefix for the full registry path
+    let full_key = format!("HKLM\\{}", SERVICE_REGISTRY_KEY);
+
     // Query ConfigPath
     let output = Command::new("reg")
         .args([
             "query",
-            SERVICE_REGISTRY_KEY,
+            &full_key,
             "/v", "ConfigPath",
         ])
         .output()
@@ -199,7 +209,7 @@ fn load_service_config() -> Result<(PathBuf, String)> {
     let output = Command::new("reg")
         .args([
             "query",
-            SERVICE_REGISTRY_KEY,
+            &full_key,
             "/v", "Role",
         ])
         .output()
