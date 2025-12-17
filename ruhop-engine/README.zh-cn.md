@@ -215,10 +215,12 @@ let client_cfg = config.client_config()?;
 | 状态 | 描述 |
 |-------|-------------|
 | `Disconnected` | 未运行 |
-| `Connecting` | 正在启动 |
-| `Handshaking` | 正在进行密钥交换 |
-| `Connected` | 运行中，隧道活跃 |
-| `Reconnecting` | 断线后自动重连中 |
+| `Starting` | 服务器：正在初始化 |
+| `Connecting` | 客户端：正在启动 |
+| `Handshaking` | 客户端：正在进行密钥交换 |
+| `Connected` | 客户端：运行中，隧道活跃 |
+| `Listening` | 服务器：就绪，正在接受客户端 |
+| `Reconnecting` | 客户端：断线后自动重连中 |
 | `Disconnecting` | 正在优雅关闭 |
 | `Error` | 错误状态 |
 
@@ -237,7 +239,8 @@ state.description();   // 人类可读的描述
 | 事件 | 描述 |
 |-------|-------------|
 | `StateChanged { old, new }` | 状态机转换 |
-| `Connected { tunnel_ip, peer_ip }` | 连接已建立 |
+| `Connected { tunnel_ip, peer_ip }` | 客户端：连接已建立 |
+| `ServerReady { tunnel_ip, port_range }` | 服务器：就绪并监听中 |
 | `Disconnected { reason }` | 连接已终止 |
 | `ClientConnected { session_id, assigned_ip }` | 服务器：新客户端连接 |
 | `ClientDisconnected { session_id, reason }` | 服务器：客户端断开 |
@@ -265,8 +268,14 @@ pub struct VpnStats {
 客户端支持 `on_connect` 和 `on_disconnect` 脚本，接收以下参数：
 
 ```
-<脚本> <本地IP> <对端IP> <前缀长度> <TUN设备>
+<脚本> <本地IP> <对端IP> <前缀长度> <TUN设备> <DNS服务器>
 ```
+
+- `本地IP`：客户端的隧道 IP 地址
+- `对端IP`：服务器的隧道 IP 地址
+- `前缀长度`：网络前缀长度（例如 24）
+- `TUN设备`：TUN 设备名称（例如 utun5、tun0）
+- `DNS服务器`：服务器推送的 DNS 服务器 IP，逗号分隔（可能为空）
 
 连接脚本示例：
 
@@ -276,8 +285,10 @@ LOCAL_IP=$1
 PEER_IP=$2
 PREFIX=$3
 TUN_DEV=$4
+DNS_SERVERS=$5
 
 echo "已连接: $LOCAL_IP 通过 $TUN_DEV"
+echo "DNS 服务器: $DNS_SERVERS"
 # 添加自定义路由、更新 DNS 等
 ```
 

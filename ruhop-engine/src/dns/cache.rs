@@ -52,7 +52,8 @@ pub struct CacheEntry {
     pub response: Vec<u8>,
     /// When this entry expires
     pub expires_at: Instant,
-    /// When this entry was inserted
+    /// When this entry was inserted (for diagnostics)
+    #[allow(dead_code)]
     pub inserted_at: Instant,
 }
 
@@ -72,7 +73,8 @@ impl CacheEntry {
         Instant::now() >= self.expires_at
     }
 
-    /// Get the remaining TTL
+    /// Get the remaining TTL (for diagnostics)
+    #[allow(dead_code)]
     pub fn remaining_ttl(&self) -> Duration {
         self.expires_at.saturating_duration_since(Instant::now())
     }

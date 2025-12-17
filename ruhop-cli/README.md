@@ -277,7 +277,13 @@ on_connect = "/usr/local/bin/vpn-up.sh"
 on_disconnect = "/usr/local/bin/vpn-down.sh"
 ```
 
-Scripts receive arguments: `<local_ip> <peer_ip> <prefix_len> <tun_device>`
+Scripts receive arguments: `<local_ip> <peer_ip> <prefix_len> <tun_device> <dns_servers>`
+
+- `local_ip`: Client's tunnel IP address
+- `peer_ip`: Server's tunnel IP address
+- `prefix_len`: Network prefix length (e.g., 24)
+- `tun_device`: TUN device name (e.g., utun5, tun0)
+- `dns_servers`: Comma-separated DNS server IPs pushed by server (may be empty)
 
 Example `vpn-up.sh`:
 
@@ -287,11 +293,18 @@ LOCAL_IP=$1
 PEER_IP=$2
 PREFIX=$3
 TUN_DEV=$4
+DNS_SERVERS=$5
 
 echo "VPN connected: $LOCAL_IP/$PREFIX via $TUN_DEV"
+echo "DNS servers from server: $DNS_SERVERS"
 
-# Update DNS
-echo "nameserver 8.8.8.8" | sudo tee /etc/resolv.conf
+# Update DNS using server-pushed DNS servers
+if [ -n "$DNS_SERVERS" ]; then
+    IFS=',' read -ra DNS_ARRAY <<< "$DNS_SERVERS"
+    for dns in "${DNS_ARRAY[@]}"; do
+        echo "nameserver $dns"
+    done | sudo tee /etc/resolv.conf
+fi
 
 # Custom routes
 ip route add 192.168.100.0/24 via $PEER_IP dev $TUN_DEV

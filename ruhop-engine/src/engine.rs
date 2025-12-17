@@ -906,11 +906,20 @@ impl VpnEngine {
         .await;
 
         // Run on_connect script if configured
-        let script_params = ScriptParams::new(
+        // Convert IpAddress to IpAddr for script params
+        let dns_ips: Vec<IpAddr> = dns_servers
+            .iter()
+            .map(|ip| match ip {
+                IpAddress::V4(v4) => IpAddr::V4(*v4),
+                IpAddress::V6(v6) => IpAddr::V6(*v6),
+            })
+            .collect();
+        let script_params = ScriptParams::with_dns(
             IpAddr::V4(tunnel_ipv4),
             IpAddr::V4(server_tunnel_ip),
             mask,
             &tun_name,
+            &dns_ips,
         );
 
         if let Err(e) = run_connect_script(client_config.on_connect.as_deref(), &script_params).await {
