@@ -282,7 +282,7 @@ impl VpnEngine {
         let server_config = self.config.server_config()?;
         let common_config = &self.config.common;
 
-        self.set_state(VpnState::Connecting).await;
+        self.set_state(VpnState::Starting).await;
         self.log(LogLevel::Info, format!("Starting VPN server on {}", server_config.listen)).await;
 
         // Create cipher
@@ -343,10 +343,10 @@ impl VpnEngine {
         // Start DNS proxy if configured
         let dns_servers_for_handshake = self.setup_dns_proxy(server_config, tunnel_ip, shutdown_tx.clone()).await?;
 
-        self.set_state(VpnState::Connected).await;
-        self.emit_event(VpnEvent::Connected {
+        self.set_state(VpnState::Listening).await;
+        self.emit_event(VpnEvent::ServerReady {
             tunnel_ip: IpAddr::V4(tunnel_ip),
-            peer_ip: None,
+            port_range: (server_config.port_range[0], server_config.port_range[1]),
         })
         .await;
 
