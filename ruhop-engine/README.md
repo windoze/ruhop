@@ -215,10 +215,12 @@ let client_cfg = config.client_config()?;
 | State | Description |
 |-------|-------------|
 | `Disconnected` | Not running |
-| `Connecting` | Starting up |
-| `Handshaking` | Key exchange in progress |
-| `Connected` | Operational, tunnel active |
-| `Reconnecting` | Auto-reconnecting after loss |
+| `Starting` | Server: initializing |
+| `Connecting` | Client: starting up |
+| `Handshaking` | Client: key exchange in progress |
+| `Connected` | Client: operational, tunnel active |
+| `Listening` | Server: ready and accepting clients |
+| `Reconnecting` | Client: auto-reconnecting after loss |
 | `Disconnecting` | Graceful shutdown |
 | `Error` | Error state |
 
@@ -237,7 +239,8 @@ state.description();   // Human-readable description
 | Event | Description |
 |-------|-------------|
 | `StateChanged { old, new }` | State machine transition |
-| `Connected { tunnel_ip, peer_ip }` | Connection established |
+| `Connected { tunnel_ip, peer_ip }` | Client: connection established |
+| `ServerReady { tunnel_ip, port_range }` | Server: ready and listening |
 | `Disconnected { reason }` | Connection terminated |
 | `ClientConnected { session_id, assigned_ip }` | Server: new client |
 | `ClientDisconnected { session_id, reason }` | Server: client left |
@@ -265,8 +268,14 @@ pub struct VpnStats {
 Client supports `on_connect` and `on_disconnect` scripts that receive:
 
 ```
-<script> <local_ip> <peer_ip> <prefix_len> <tun_device>
+<script> <local_ip> <peer_ip> <prefix_len> <tun_device> <dns_servers>
 ```
+
+- `local_ip`: Client's tunnel IP address
+- `peer_ip`: Server's tunnel IP address
+- `prefix_len`: Network prefix length (e.g., 24)
+- `tun_device`: TUN device name (e.g., utun5, tun0)
+- `dns_servers`: Comma-separated DNS server IPs pushed by server (may be empty)
 
 Example connect script:
 
@@ -276,8 +285,10 @@ LOCAL_IP=$1
 PEER_IP=$2
 PREFIX=$3
 TUN_DEV=$4
+DNS_SERVERS=$5
 
 echo "Connected: $LOCAL_IP via $TUN_DEV"
+echo "DNS servers: $DNS_SERVERS"
 # Add custom routes, update DNS, etc.
 ```
 

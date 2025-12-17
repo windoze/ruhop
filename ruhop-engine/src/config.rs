@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 use std::net::{IpAddr, Ipv4Addr, SocketAddr, ToSocketAddrs};
 use std::path::Path;
 
+use crate::dns::{parse_dns_server, DnsServerSpec};
 use crate::error::{Error, Result};
 
 /// Main configuration structure
@@ -140,8 +141,15 @@ tunnel_network = "10.0.0.0/24"
 # Server's tunnel IP address (optional, defaults to first IP in tunnel_network)
 # tunnel_ip = "10.0.0.1"
 
-# DNS servers to push to clients
+# DNS configuration - controls what DNS servers are pushed to clients:
+# - Omit or empty: No DNS pushed to client, no DNS proxy
+# - List of IPs: Push these IPs to client (e.g., dns = ["8.8.8.8"])
+# - "tunnel": Enable DNS proxy on tunnel IP, push tunnel IP to client
 dns = ["8.8.8.8", "8.8.4.4"]
+
+# Upstream DNS servers for the DNS proxy (only used when dns = "tunnel")
+# Supports: "IP[:port][/udp|tcp]", "https://...", "tls://..."
+# dns_servers = ["8.8.8.8", "https://cloudflare-dns.com/dns-query"]
 
 # Maximum number of clients (default: 100)
 max_clients = 100
@@ -239,6 +247,54 @@ impl Default for CommonConfig {
     }
 }
 
+/// DNS configuration for the server
+///
+/// This controls what DNS servers are pushed to clients:
+/// - `None` (default): No DNS pushed to client, no proxy
+/// - `Push(Vec<IpAddr>)`: Push these IPs to client, no proxy
+/// - `Tunnel`: Enable DNS proxy, push server tunnel IP to client
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum DnsConfig {
+    /// Push specific DNS servers to client (no proxy)
+    /// Example: `dns = ["8.8.8.8", "8.8.4.4"]`
+    Push(Vec<IpAddr>),
+
+    /// Enable DNS proxy on tunnel IP
+    /// The string "tunnel" enables the proxy and pushes tunnel IP to client
+    /// Example: `dns = "tunnel"`
+    Tunnel(String),
+}
+
+impl Default for DnsConfig {
+    fn default() -> Self {
+        DnsConfig::Push(Vec::new())
+    }
+}
+
+impl DnsConfig {
+    /// Check if this is a tunnel configuration
+    pub fn is_tunnel(&self) -> bool {
+        matches!(self, DnsConfig::Tunnel(s) if s.eq_ignore_ascii_case("tunnel"))
+    }
+
+    /// Check if this is empty (no DNS configuration)
+    pub fn is_empty(&self) -> bool {
+        matches!(self, DnsConfig::Push(v) if v.is_empty())
+    }
+
+    /// Get DNS servers to push to client
+    ///
+    /// For `Push` variant, returns the configured IPs.
+    /// For `Tunnel` variant, returns `None` (caller should use tunnel IP).
+    pub fn push_servers(&self) -> Option<&[IpAddr]> {
+        match self {
+            DnsConfig::Push(ips) if !ips.is_empty() => Some(ips),
+            _ => None,
+        }
+    }
+}
+
 /// Server-specific configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ServerConfig {
@@ -263,9 +319,35 @@ pub struct ServerConfig {
     /// Tunnel network in CIDR notation
     pub tunnel_network: String,
 
-    /// DNS servers to push to clients
+    /// DNS configuration for clients
+    ///
+    /// Controls what DNS servers are pushed to clients:
+    /// - Omitted or empty: No DNS pushed to client, no DNS proxy
+    /// - List of IPs: Push these IPs to client (e.g., `dns = ["8.8.8.8"]`)
+    /// - "tunnel": Enable DNS proxy on tunnel IP, push tunnel IP to client
     #[serde(default)]
-    pub dns: Vec<IpAddr>,
+    pub dns: DnsConfig,
+
+    /// Upstream DNS servers for the DNS proxy (only used when dns = "tunnel")
+    ///
+    /// Supports multiple formats:
+    /// - `"IP"` or `"IP:port"` - UDP DNS server (port defaults to 53)
+    /// - `"IP/udp"` or `"IP:port/udp"` - Explicit UDP DNS
+    /// - `"IP/tcp"` or `"IP:port/tcp"` - TCP DNS
+    /// - `"https://..."` - DNS over HTTPS (DoH)
+    /// - `"tls://..."` - DNS over TLS (DoT)
+    ///
+    /// Example:
+    /// ```toml
+    /// dns_servers = [
+    ///     "8.8.8.8",
+    ///     "1.1.1.1:5353/udp",
+    ///     "https://cloudflare-dns.com/dns-query",
+    ///     "tls://dns.google"
+    /// ]
+    /// ```
+    #[serde(default)]
+    pub dns_servers: Vec<String>,
 
     /// Maximum number of clients
     #[serde(default = "default_max_clients")]
@@ -341,6 +423,16 @@ impl ServerConfig {
         }
 
         Ok(first_ip)
+    }
+
+    /// Parse the configured DNS servers into DnsServerSpec
+    ///
+    /// Only used when `dns = "tunnel"` is configured.
+    pub fn parse_dns_servers(&self) -> Result<Vec<DnsServerSpec>> {
+        self.dns_servers
+            .iter()
+            .map(|s| parse_dns_server(s))
+            .collect()
     }
 }
 

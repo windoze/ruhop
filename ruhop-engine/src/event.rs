@@ -8,12 +8,16 @@ use std::time::{Duration, Instant};
 pub enum VpnState {
     /// VPN is not running
     Disconnected,
-    /// Connecting to server (client) or starting up (server)
+    /// Starting up (server mode)
+    Starting,
+    /// Connecting to server (client mode)
     Connecting,
     /// Performing handshake
     Handshaking,
-    /// Connected and operational
+    /// Connected and operational (client mode)
     Connected,
+    /// Server is listening for clients (server mode)
+    Listening,
     /// Reconnecting after a connection loss
     Reconnecting,
     /// Disconnecting gracefully
@@ -27,25 +31,34 @@ impl VpnState {
     pub fn is_active(&self) -> bool {
         matches!(
             self,
-            VpnState::Connecting
+            VpnState::Starting
+                | VpnState::Connecting
                 | VpnState::Handshaking
                 | VpnState::Connected
+                | VpnState::Listening
                 | VpnState::Reconnecting
         )
     }
 
-    /// Check if the VPN is fully connected
+    /// Check if the VPN is fully connected (client mode)
     pub fn is_connected(&self) -> bool {
         matches!(self, VpnState::Connected)
+    }
+
+    /// Check if the server is listening (server mode)
+    pub fn is_listening(&self) -> bool {
+        matches!(self, VpnState::Listening)
     }
 
     /// Get a human-readable description
     pub fn description(&self) -> &'static str {
         match self {
             VpnState::Disconnected => "Disconnected",
+            VpnState::Starting => "Starting...",
             VpnState::Connecting => "Connecting...",
             VpnState::Handshaking => "Handshaking...",
             VpnState::Connected => "Connected",
+            VpnState::Listening => "Listening",
             VpnState::Reconnecting => "Reconnecting...",
             VpnState::Disconnecting => "Disconnecting...",
             VpnState::Error => "Error",
@@ -115,12 +128,20 @@ pub enum VpnEvent {
         new: VpnState,
     },
 
-    /// Connected to server (client) or client connected (server)
+    /// Connected to server (client mode only)
     Connected {
         /// Assigned tunnel IP address
         tunnel_ip: IpAddr,
         /// Server/peer IP address
         peer_ip: Option<IpAddr>,
+    },
+
+    /// Server is ready and listening (server mode only)
+    ServerReady {
+        /// Server's tunnel IP address
+        tunnel_ip: IpAddr,
+        /// Port range the server is listening on
+        port_range: (u16, u16),
     },
 
     /// Disconnected
@@ -208,6 +229,12 @@ impl EventHandler for LoggingEventHandler {
                 } else {
                     log::info!("Connected: tunnel={}", tunnel_ip);
                 }
+            }
+            VpnEvent::ServerReady { tunnel_ip, port_range } => {
+                log::info!(
+                    "Server ready: tunnel={}, ports={}-{}",
+                    tunnel_ip, port_range.0, port_range.1
+                );
             }
             VpnEvent::Disconnected { reason } => {
                 log::info!("Disconnected: {}", reason);

@@ -16,6 +16,7 @@ use hop_protocol::{
     AssignedAddresses, Cipher, IpAddress, Ipv4Pool, Packet, Session, SessionId,
     SessionState,
 };
+use crate::dns::{DnsClient, DnsProxy};
 use hop_tun::{Route, RouteManager, TunConfig, TunDevice};
 
 use crate::config::{ClientConfig, CommonConfig, Config, ServerConfig};
@@ -281,7 +282,7 @@ impl VpnEngine {
         let server_config = self.config.server_config()?;
         let common_config = &self.config.common;
 
-        self.set_state(VpnState::Connecting).await;
+        self.set_state(VpnState::Starting).await;
         self.log(LogLevel::Info, format!("Starting VPN server on {}", server_config.listen)).await;
 
         // Create cipher
@@ -339,10 +340,13 @@ impl VpnEngine {
             self.setup_nat(server_config).await?;
         }
 
-        self.set_state(VpnState::Connected).await;
-        self.emit_event(VpnEvent::Connected {
+        // Start DNS proxy if configured
+        let dns_servers_for_handshake = self.setup_dns_proxy(server_config, tunnel_ip, shutdown_tx.clone()).await?;
+
+        self.set_state(VpnState::Listening).await;
+        self.emit_event(VpnEvent::ServerReady {
             tunnel_ip: IpAddr::V4(tunnel_ip),
-            peer_ip: None,
+            port_range: (server_config.port_range[0], server_config.port_range[1]),
         })
         .await;
 
@@ -356,6 +360,7 @@ impl VpnEngine {
                 server_config.clone(),
                 shutdown_tx,
                 self.shared_stats.clone(),
+                dns_servers_for_handshake,
             )
             .await;
 
@@ -400,6 +405,70 @@ impl VpnEngine {
         Ok(())
     }
 
+    /// Setup DNS proxy if configured and return DNS servers to push to clients
+    async fn setup_dns_proxy(
+        &self,
+        server_config: &ServerConfig,
+        tunnel_ip: Ipv4Addr,
+        shutdown_tx: broadcast::Sender<()>,
+    ) -> Result<Vec<IpAddress>> {
+        use crate::config::DnsConfig;
+
+        // Determine DNS servers to push to clients based on config
+        match &server_config.dns {
+            DnsConfig::Push(ips) if ips.is_empty() => {
+                // Empty DNS config - don't push any DNS servers
+                Ok(Vec::new())
+            }
+            DnsConfig::Push(ips) => {
+                // Push specific IPs to client, no proxy needed
+                let dns_ips: Vec<IpAddress> = ips.iter().map(|ip| IpAddress::from(*ip)).collect();
+                self.log(
+                    LogLevel::Info,
+                    format!("DNS servers to push: {:?}", ips),
+                )
+                .await;
+                Ok(dns_ips)
+            }
+            DnsConfig::Tunnel(_) => {
+                // Enable DNS proxy on tunnel IP, push tunnel IP to client
+                let upstreams = server_config.parse_dns_servers()?;
+                if upstreams.is_empty() {
+                    return Err(Error::Config(
+                        "dns = \"tunnel\" requires dns_servers to be configured".into(),
+                    ));
+                }
+
+                // Create DNS client with upstream servers
+                let dns_client = Arc::new(DnsClient::new(upstreams.clone(), 1000)?);
+
+                // Create and start DNS proxy
+                let bind_addr = SocketAddr::new(IpAddr::V4(tunnel_ip), 53);
+                let proxy = DnsProxy::new(bind_addr, dns_client, shutdown_tx.subscribe());
+
+                self.log(
+                    LogLevel::Info,
+                    format!(
+                        "Starting DNS proxy on {} with {} upstream server(s)",
+                        bind_addr,
+                        upstreams.len()
+                    ),
+                )
+                .await;
+
+                // Spawn DNS proxy in background
+                tokio::spawn(async move {
+                    if let Err(e) = proxy.run().await {
+                        log::error!("DNS proxy error: {}", e);
+                    }
+                });
+
+                // Push tunnel IP as DNS server to clients
+                Ok(vec![IpAddress::V4(tunnel_ip)])
+            }
+        }
+    }
+
     #[allow(clippy::too_many_arguments)]
     async fn run_server_loop(
         &self,
@@ -410,6 +479,7 @@ impl VpnEngine {
         server_config: ServerConfig,
         shutdown_tx: broadcast::Sender<()>,
         shared_stats: SharedStatsRef,
+        dns_servers: Vec<IpAddress>,
     ) -> Result<()> {
         let mut shutdown_rx = shutdown_tx.subscribe();
 
@@ -484,6 +554,9 @@ impl VpnEngine {
             }
         });
 
+        // Wrap DNS servers in Arc for sharing
+        let dns_servers = Arc::new(dns_servers);
+
         // Spawn UDP -> TUN tasks for each socket
         let mut udp_tasks = Vec::new();
         for (socket_idx, socket) in sockets.iter().enumerate() {
@@ -496,6 +569,7 @@ impl VpnEngine {
             let stats_udp = shared_stats.clone();
             let event_handler_udp = event_handler.clone();
             let server_config_clone = server_config.clone();
+            let dns_servers_clone = dns_servers.clone();
 
             let task = tokio::spawn(async move {
                 let mut buf = vec![0u8; 2000];
@@ -545,6 +619,7 @@ impl VpnEngine {
                                     peer_addr,
                                     socket_idx,
                                     &event_handler_udp,
+                                    &dns_servers_clone,
                                 )
                                 .await;
                             } else if flags.is_handshake() && flags.is_ack() {
@@ -748,14 +823,16 @@ impl VpnEngine {
         let mut buf = vec![0u8; 2000];
         let handshake_timeout = Duration::from_secs(10);
         let server_addrs_clone = server_addrs.clone();
-        let assigned_ip = tokio::time::timeout(handshake_timeout, async {
+        let handshake_result = tokio::time::timeout(handshake_timeout, async {
             loop {
                 let (n, _) = socket.recv_from(&mut buf).await?;
                 let packet = cipher.decrypt(&buf[..n])?;
 
                 if packet.header.flag.is_handshake_ack() && packet.header.sid == sid {
-                    let (_, ip, mask) = packet.parse_handshake_response_v2()?;
-                    session.complete_handshake_v2(ip, mask)?;
+                    // Use v4 parser to get DNS servers along with addresses
+                    let (_, response) = packet.parse_handshake_response_v4()?;
+                    let primary = response.addresses.primary();
+                    session.complete_handshake_v2(primary.ip, primary.mask)?;
 
                     // Send confirmation to a random address
                     let confirm = Packet::handshake_confirm(sid);
@@ -766,15 +843,22 @@ impl VpnEngine {
                         .unwrap_or(initial_addr);
                     socket.send_to(&encrypted, confirm_addr).await?;
 
-                    return Ok::<_, Error>((ip, mask));
+                    return Ok::<_, Error>((primary.ip, primary.mask, response.dns_servers));
                 }
             }
         })
         .await
         .map_err(|_| Error::Timeout("handshake timeout".to_string()))??;
 
-        let (tunnel_ip, mask) = assigned_ip;
+        let (tunnel_ip, mask, dns_servers) = handshake_result;
         self.log(LogLevel::Info, format!("Assigned IP: {}/{}", tunnel_ip, mask)).await;
+        if !dns_servers.is_empty() {
+            self.log(
+                LogLevel::Info,
+                format!("DNS servers from server: {:?}", dns_servers.iter().map(|ip| ip.to_string()).collect::<Vec<_>>()),
+            )
+            .await;
+        }
 
         // Create TUN device with assigned IP
         let server_tunnel_ip = match &tunnel_ip {
@@ -822,11 +906,20 @@ impl VpnEngine {
         .await;
 
         // Run on_connect script if configured
-        let script_params = ScriptParams::new(
+        // Convert IpAddress to IpAddr for script params
+        let dns_ips: Vec<IpAddr> = dns_servers
+            .iter()
+            .map(|ip| match ip {
+                IpAddress::V4(v4) => IpAddr::V4(*v4),
+                IpAddress::V6(v6) => IpAddr::V6(*v6),
+            })
+            .collect();
+        let script_params = ScriptParams::with_dns(
             IpAddr::V4(tunnel_ipv4),
             IpAddr::V4(server_tunnel_ip),
             mask,
             &tun_name,
+            &dns_ips,
         );
 
         if let Err(e) = run_connect_script(client_config.on_connect.as_deref(), &script_params).await {
@@ -1238,6 +1331,7 @@ async fn handle_server_handshake(
     peer_addr: SocketAddr,
     socket_idx: usize,
     event_handler: &Arc<dyn EventHandler>,
+    dns_servers: &[IpAddress],
 ) {
     let mut sessions_lock = sessions.write().await;
 
@@ -1291,12 +1385,12 @@ async fn handle_server_handshake(
         }
     }
 
-    // Send handshake response with assigned IP
+    // Send handshake response with assigned IP and DNS servers (v4 protocol)
     let addresses = AssignedAddresses::single(
         client.address_pair.client.ip,
         client.address_pair.client.mask,
     );
-    let response = Packet::handshake_response_multi_ip(sid, addresses);
+    let response = Packet::handshake_response_v4(sid, addresses, dns_servers.to_vec());
 
     match cipher.encrypt(&response, 0) {
         Ok(encrypted) => {

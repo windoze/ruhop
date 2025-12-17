@@ -21,6 +21,8 @@ pub struct ScriptParams {
     pub prefix_len: u8,
     /// TUN device name
     pub tun_device: String,
+    /// DNS servers pushed by server (comma-separated string for script)
+    pub dns_servers: String,
 }
 
 impl ScriptParams {
@@ -31,6 +33,28 @@ impl ScriptParams {
             peer_ip,
             prefix_len,
             tun_device: tun_device.into(),
+            dns_servers: String::new(),
+        }
+    }
+
+    /// Create script parameters with DNS servers
+    pub fn with_dns(
+        local_ip: IpAddr,
+        peer_ip: IpAddr,
+        prefix_len: u8,
+        tun_device: impl Into<String>,
+        dns_servers: &[IpAddr],
+    ) -> Self {
+        Self {
+            local_ip,
+            peer_ip,
+            prefix_len,
+            tun_device: tun_device.into(),
+            dns_servers: dns_servers
+                .iter()
+                .map(|ip| ip.to_string())
+                .collect::<Vec<_>>()
+                .join(","),
         }
     }
 }
@@ -42,6 +66,7 @@ impl ScriptParams {
 /// 2. Peer (server) tunnel IP address
 /// 3. Netmask (prefix length)
 /// 4. TUN device name
+/// 5. DNS servers (comma-separated, may be empty)
 ///
 /// # Platform Behavior
 ///
@@ -57,21 +82,26 @@ pub async fn run_script(script: &str, params: &ScriptParams) -> Result<()> {
         params.peer_ip.to_string(),
         params.prefix_len.to_string(),
         params.tun_device.clone(),
+        params.dns_servers.clone(),
     ];
 
     log::info!(
-        "Running script: {} {} {} {} {}",
+        "Running script: {} {} {} {} {} {}",
         script,
         args[0],
         args[1],
         args[2],
-        args[3]
+        args[3],
+        args[4]
     );
 
     #[cfg(unix)]
     let output = Command::new("/bin/sh")
         .arg("-c")
-        .arg(format!("{} {} {} {} {}", script, args[0], args[1], args[2], args[3]))
+        .arg(format!(
+            "{} {} {} {} {} '{}'",
+            script, args[0], args[1], args[2], args[3], args[4]
+        ))
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -82,7 +112,10 @@ pub async fn run_script(script: &str, params: &ScriptParams) -> Result<()> {
     #[cfg(windows)]
     let output = Command::new("cmd")
         .arg("/C")
-        .arg(format!("{} {} {} {} {}", script, args[0], args[1], args[2], args[3]))
+        .arg(format!(
+            "{} {} {} {} {} \"{}\"",
+            script, args[0], args[1], args[2], args[3], args[4]
+        ))
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -160,6 +193,28 @@ mod tests {
         assert_eq!(params.peer_ip, IpAddr::V4(Ipv4Addr::new(10, 0, 0, 1)));
         assert_eq!(params.prefix_len, 24);
         assert_eq!(params.tun_device, "tun0");
+        assert_eq!(params.dns_servers, "");
+    }
+
+    #[test]
+    fn test_script_params_with_dns() {
+        let dns_servers = vec![
+            IpAddr::V4(Ipv4Addr::new(8, 8, 8, 8)),
+            IpAddr::V4(Ipv4Addr::new(8, 8, 4, 4)),
+        ];
+        let params = ScriptParams::with_dns(
+            IpAddr::V4(Ipv4Addr::new(10, 0, 0, 2)),
+            IpAddr::V4(Ipv4Addr::new(10, 0, 0, 1)),
+            24,
+            "tun0",
+            &dns_servers,
+        );
+
+        assert_eq!(params.local_ip, IpAddr::V4(Ipv4Addr::new(10, 0, 0, 2)));
+        assert_eq!(params.peer_ip, IpAddr::V4(Ipv4Addr::new(10, 0, 0, 1)));
+        assert_eq!(params.prefix_len, 24);
+        assert_eq!(params.tun_device, "tun0");
+        assert_eq!(params.dns_servers, "8.8.8.8,8.8.4.4");
     }
 
     #[tokio::test]
