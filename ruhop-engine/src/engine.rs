@@ -626,7 +626,9 @@ impl VpnEngine {
                                 // Handshake confirmation from client
                                 let mut sessions = sessions_write.write().await;
                                 if let Some(client) = sessions.get_mut(&sid) {
-                                    // Update last recv socket for NAT traversal
+                                    // Update peer address and socket index for NAT traversal
+                                    // (client may send from different source addresses in multi-homed setup)
+                                    client.peer_addr = peer_addr;
                                     client.last_recv_socket_idx = socket_idx;
                                     client.last_activity = Instant::now();
                                     if client.session.state == SessionState::Handshake {
@@ -653,9 +655,12 @@ impl VpnEngine {
                                 )
                                 .await;
                             } else if flags.is_data() {
-                                // Data packet - update last recv socket for NAT traversal
+                                // Data packet - update peer address and socket for NAT traversal
                                 let mut sessions = sessions_write.write().await;
                                 if let Some(client) = sessions.get_mut(&sid) {
+                                    // Update peer address and socket index for NAT traversal
+                                    // (client may send from different source addresses in multi-homed setup)
+                                    client.peer_addr = peer_addr;
                                     client.last_recv_socket_idx = socket_idx;
                                     client.last_activity = Instant::now();
                                     if client.session.state == SessionState::Working {
@@ -1267,7 +1272,9 @@ async fn handle_server_knock_multi(
 
     // Check if session already exists
     if let Some(client) = sessions_lock.get_mut(&sid) {
-        // Update last recv socket for NAT traversal
+        // Update peer address and socket index for NAT traversal
+        // (client may send from different source addresses in multi-homed setup)
+        client.peer_addr = peer_addr;
         client.last_recv_socket_idx = socket_idx;
         client.last_activity = Instant::now();
         return;
@@ -1337,7 +1344,9 @@ async fn handle_server_handshake(
 
     // Get or create session
     let client = if let Some(c) = sessions_lock.get_mut(&sid) {
-        // Update last recv socket for NAT traversal
+        // Update peer address and socket index for NAT traversal
+        // (client may send from different source addresses in multi-homed setup)
+        c.peer_addr = peer_addr;
         c.last_recv_socket_idx = socket_idx;
         c
     } else {
