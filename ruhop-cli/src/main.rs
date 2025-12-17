@@ -10,10 +10,12 @@ use tokio::signal;
 use tracing::{error, info};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
 
-use ruhop_engine::{Config, ControlClient, VpnEngine, VpnRole, DEFAULT_SOCKET_PATH};
+use ruhop_engine::{Config, ControlClient, ServerAddress, VpnEngine, VpnRole, DEFAULT_SOCKET_PATH};
 
 #[cfg(windows)]
 mod service;
+
+mod share;
 
 /// Ruhop VPN - A Rust implementation of GoHop protocol
 #[derive(Parser)]
@@ -52,6 +54,23 @@ enum Commands {
         /// Output path for the configuration file
         #[arg(short, long, default_value = "ruhop.toml")]
         output: PathBuf,
+    },
+
+    /// Encode configuration as a shareable ruhop:// URL
+    Encode,
+
+    /// Decode a ruhop:// URL back to configuration
+    Decode {
+        /// The ruhop:// URL to decode
+        url: String,
+    },
+
+    /// Generate a QR code from configuration
+    Qr {
+        /// Output file path for QR code image (PNG format)
+        /// If not specified, displays QR code in terminal
+        #[arg(short, long)]
+        output: Option<PathBuf>,
     },
 
     /// Windows service management (Windows only)
@@ -144,6 +163,9 @@ async fn async_main() -> Result<()> {
         Commands::Client => run_client(cli.config).await,
         Commands::Status { socket } => show_status(socket).await,
         Commands::GenConfig { output } => generate_config(output),
+        Commands::Encode => encode_config(cli.config),
+        Commands::Decode { url } => decode_url(&url),
+        Commands::Qr { output } => generate_qr(cli.config, output),
         #[cfg(windows)]
         Commands::Service { action } => handle_service_action(action, &cli.config),
         #[cfg(windows)]
@@ -401,4 +423,95 @@ async fn wait_for_shutdown() {
         signal::ctrl_c().await.expect("Failed to listen for Ctrl+C");
         info!("Received Ctrl+C");
     }
+}
+
+/// Encode configuration as a shareable ruhop:// URL
+fn encode_config(config_path: PathBuf) -> Result<()> {
+    let config = load_config(&config_path)?;
+
+    // Extract client configuration
+    let client = config.client_config()
+        .context("encode requires a client configuration section")?;
+
+    // Build ShareConfig from the loaded config
+    let server = match &client.server {
+        ServerAddress::Single(s) => share::ServerAddr::Single(s.clone()),
+        ServerAddress::Multiple(v) => share::ServerAddr::Multiple(v.clone()),
+    };
+
+    let share_config = share::ShareConfig {
+        key: config.common.key.clone(),
+        obfuscation: config.common.obfuscation,
+        server,
+        port_range: client.port_range,
+    };
+
+    let url = share_config.to_url()?;
+    println!("{}", url);
+
+    Ok(())
+}
+
+/// Decode a ruhop:// URL back to configuration
+fn decode_url(url: &str) -> Result<()> {
+    let config = share::ShareConfig::from_url(url)?;
+    let toml = config.to_toml();
+    println!("{}", toml);
+    Ok(())
+}
+
+/// Generate a QR code from configuration
+fn generate_qr(config_path: PathBuf, output: Option<PathBuf>) -> Result<()> {
+    use qrcode::QrCode;
+
+    let config = load_config(&config_path)?;
+
+    // Extract client configuration
+    let client = config.client_config()
+        .context("qr requires a client configuration section")?;
+
+    // Build ShareConfig from the loaded config
+    let server = match &client.server {
+        ServerAddress::Single(s) => share::ServerAddr::Single(s.clone()),
+        ServerAddress::Multiple(v) => share::ServerAddr::Multiple(v.clone()),
+    };
+
+    let share_config = share::ShareConfig {
+        key: config.common.key.clone(),
+        obfuscation: config.common.obfuscation,
+        server,
+        port_range: client.port_range,
+    };
+
+    let url = share_config.to_url()?;
+
+    // Generate QR code
+    let code = QrCode::new(url.as_bytes())
+        .context("Failed to generate QR code")?;
+
+    match output {
+        Some(path) => {
+            // Save as PNG image
+            let image = code.render::<image::Luma<u8>>()
+                .min_dimensions(256, 256)
+                .build();
+
+            image.save(&path)
+                .with_context(|| format!("Failed to save QR code to {:?}", path))?;
+
+            println!("QR code saved to {:?}", path);
+        }
+        None => {
+            // Display in terminal using Unicode block characters
+            let string = code.render::<char>()
+                .quiet_zone(true)
+                .module_dimensions(2, 1)
+                .build();
+
+            println!("{}", string);
+            println!("\nURL: {}", url);
+        }
+    }
+
+    Ok(())
 }

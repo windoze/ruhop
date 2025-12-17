@@ -5,7 +5,7 @@ resolver = "2"
 [workspace.package]
 version = "0.7.0"
 edition = "2021"
-authors = ["Chen Xu"]
+authors = ["Windoze <windoze@0d0a.com>"]
 license = "AGPL-3.0-or-later"
-repository = "https://github.com/chenxu/ruhop"
+repository = "https://github.com/windoze/ruhop"
 description = "A Rust implementation of the GoHop VPN protocol with port hopping capabilities"
