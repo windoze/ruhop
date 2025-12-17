@@ -99,15 +99,29 @@ enum ServiceAction {
     Status,
 }
 
-#[tokio::main]
-async fn main() -> Result<()> {
-    let cli = Cli::parse();
-
-    // Handle service-run command before initializing logging (service has its own logging)
+fn main() -> Result<()> {
+    // On Windows, check if we're being launched as a service BEFORE parsing args
+    // The SCM launches us with "service-run" as the first argument
     #[cfg(windows)]
-    if let Commands::ServiceRun { .. } = &cli.command {
-        return service::run_as_service();
+    {
+        let args: Vec<String> = std::env::args().collect();
+        if args.len() > 1 && args[1] == "service-run" {
+            // Running as a Windows service - call the service dispatcher directly
+            // This must happen before any async runtime is created
+            return service::run_as_service();
+        }
     }
+
+    // Now we can create the tokio runtime and parse CLI args normally
+    tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+        .expect("Failed to create tokio runtime")
+        .block_on(async_main())
+}
+
+async fn async_main() -> Result<()> {
+    let cli = Cli::parse();
 
     // Initialize logging
     init_logging(&cli.log_level);
@@ -133,7 +147,11 @@ async fn main() -> Result<()> {
         #[cfg(windows)]
         Commands::Service { action } => handle_service_action(action, &cli.config),
         #[cfg(windows)]
-        Commands::ServiceRun { .. } => unreachable!(), // Handled above
+        Commands::ServiceRun { .. } => {
+            // This is handled in main() before tokio runtime is created
+            // If we somehow get here, it means something is wrong
+            anyhow::bail!("ServiceRun should be handled before async runtime creation");
+        }
     }
 }
 
