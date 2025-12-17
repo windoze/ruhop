@@ -38,6 +38,11 @@ const SERVICE_TYPE: ServiceType = ServiceType::OWN_PROCESS;
 /// Registry key for storing service configuration
 const SERVICE_REGISTRY_KEY: &str = r"SYSTEM\CurrentControlSet\Services\ruhop\Parameters";
 
+/// Standard config directory for the service
+const SERVICE_CONFIG_DIR: &str = r"C:\ProgramData\Ruhop";
+/// Standard config file path for the service
+const SERVICE_CONFIG_PATH: &str = r"C:\ProgramData\Ruhop\ruhop.toml";
+
 /// Install the service
 pub fn install_service(config_path: &PathBuf, role: &str) -> Result<()> {
     let manager_access = ServiceManagerAccess::CONNECT | ServiceManagerAccess::CREATE_SERVICE;
@@ -47,12 +52,8 @@ pub fn install_service(config_path: &PathBuf, role: &str) -> Result<()> {
     // Get the path to our executable
     let service_binary_path = std::env::current_exe().context("Failed to get current executable path")?;
 
-    // Canonicalize config path
-    let config_path_str = config_path
-        .canonicalize()
-        .unwrap_or_else(|_| config_path.clone())
-        .to_string_lossy()
-        .to_string();
+    // Copy config file to standard location
+    let dest_config_path = copy_config_to_programdata(config_path)?;
 
     let service_info = ServiceInfo {
         name: OsString::from(SERVICE_NAME),
@@ -78,17 +79,40 @@ pub fn install_service(config_path: &PathBuf, role: &str) -> Result<()> {
         .set_description(SERVICE_DESCRIPTION)
         .context("Failed to set service description")?;
 
-    // Store config path and role in registry
-    save_service_config(&config_path_str, role)?;
+    // Store role in registry (config path is now fixed)
+    save_service_config(&dest_config_path, role)?;
 
     println!("Service '{}' installed successfully.", SERVICE_NAME);
-    println!("Configuration: {}", config_path_str);
+    println!("Configuration copied to: {}", dest_config_path);
     println!("Role: {}", role);
     println!();
     println!("To start the service, run: ruhop service start");
     println!("Or use: sc start {}", SERVICE_NAME);
 
     Ok(())
+}
+
+/// Copy config file to C:\ProgramData\Ruhop\ruhop.toml
+fn copy_config_to_programdata(source_path: &PathBuf) -> Result<String> {
+    use std::fs;
+
+    // Create the directory if it doesn't exist
+    let config_dir = std::path::Path::new(SERVICE_CONFIG_DIR);
+    fs::create_dir_all(config_dir)
+        .with_context(|| format!("Failed to create directory: {}", SERVICE_CONFIG_DIR))?;
+
+    // Read the source config
+    let config_content = fs::read_to_string(source_path)
+        .with_context(|| format!("Failed to read config file: {:?}", source_path))?;
+
+    // Write to the standard location
+    let dest_path = std::path::Path::new(SERVICE_CONFIG_PATH);
+    fs::write(dest_path, &config_content)
+        .with_context(|| format!("Failed to write config to: {}", SERVICE_CONFIG_PATH))?;
+
+    println!("Copied configuration from {:?} to {}", source_path, SERVICE_CONFIG_PATH);
+
+    Ok(SERVICE_CONFIG_PATH.to_string())
 }
 
 /// Save service configuration to registry
