@@ -213,6 +213,97 @@ pub fn configure_firewall(interface: &str, enable: bool) -> Result<()> {
     Ok(())
 }
 
+/// Configure Windows Firewall to allow VPN UDP traffic
+/// This adds firewall rules to allow inbound/outbound UDP traffic for the VPN
+pub fn configure_vpn_firewall(app_name: &str, enable: bool) -> Result<()> {
+    let rule_name_in = format!("{} VPN Inbound", app_name);
+    let rule_name_out = format!("{} VPN Outbound", app_name);
+
+    if enable {
+        // Get the path to our executable
+        let exe_path = std::env::current_exe()
+            .map_err(|e| Error::Config(format!("failed to get executable path: {}", e)))?;
+        let exe_path_str = exe_path.to_string_lossy();
+
+        // Remove existing rules first (ignore errors)
+        let _ = Command::new("netsh")
+            .args([
+                "advfirewall", "firewall", "delete", "rule",
+                &format!("name={}", rule_name_in),
+            ])
+            .output();
+        let _ = Command::new("netsh")
+            .args([
+                "advfirewall", "firewall", "delete", "rule",
+                &format!("name={}", rule_name_out),
+            ])
+            .output();
+
+        // Add inbound rule for UDP
+        let output = Command::new("netsh")
+            .args([
+                "advfirewall", "firewall", "add", "rule",
+                &format!("name={}", rule_name_in),
+                "dir=in",
+                "action=allow",
+                "protocol=UDP",
+                &format!("program={}", exe_path_str),
+                "enable=yes",
+            ])
+            .output()
+            .map_err(|e| Error::Config(format!("failed to add firewall rule: {}", e)))?;
+
+        if !output.status.success() {
+            log::warn!(
+                "Failed to add inbound firewall rule: {}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+        } else {
+            log::info!("Added firewall rule: {}", rule_name_in);
+        }
+
+        // Add outbound rule for UDP
+        let output = Command::new("netsh")
+            .args([
+                "advfirewall", "firewall", "add", "rule",
+                &format!("name={}", rule_name_out),
+                "dir=out",
+                "action=allow",
+                "protocol=UDP",
+                &format!("program={}", exe_path_str),
+                "enable=yes",
+            ])
+            .output()
+            .map_err(|e| Error::Config(format!("failed to add firewall rule: {}", e)))?;
+
+        if !output.status.success() {
+            log::warn!(
+                "Failed to add outbound firewall rule: {}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+        } else {
+            log::info!("Added firewall rule: {}", rule_name_out);
+        }
+    } else {
+        // Remove the rules
+        let _ = Command::new("netsh")
+            .args([
+                "advfirewall", "firewall", "delete", "rule",
+                &format!("name={}", rule_name_in),
+            ])
+            .output();
+        let _ = Command::new("netsh")
+            .args([
+                "advfirewall", "firewall", "delete", "rule",
+                &format!("name={}", rule_name_out),
+            ])
+            .output();
+        log::info!("Removed firewall rules for {}", app_name);
+    }
+
+    Ok(())
+}
+
 /// Check if running with administrator privileges using Windows API
 pub fn is_admin() -> bool {
     unsafe {

@@ -679,6 +679,14 @@ impl VpnEngine {
         self.set_state(VpnState::Connecting).await;
         self.log(LogLevel::Info, format!("Connecting to server: {:?}", client_config.server)).await;
 
+        // Configure Windows Firewall to allow VPN traffic
+        #[cfg(windows)]
+        {
+            if let Err(e) = hop_tun::windows::configure_vpn_firewall("Ruhop", true) {
+                self.log(LogLevel::Warning, format!("Failed to configure firewall: {}", e)).await;
+            }
+        }
+
         // Create cipher
         let cipher = create_cipher(common_config);
 
