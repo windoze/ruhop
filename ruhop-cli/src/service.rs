@@ -326,20 +326,31 @@ pub fn run_as_service() -> Result<()> {
 
 /// Service main function called by Windows SCM
 fn service_main(arguments: Vec<OsString>) {
+    // Initialize logging for the service - write to Windows Event Log or file
+    init_service_logging();
+
     if let Err(e) = run_service(arguments) {
-        error!("Service error: {}", e);
+        error!("Service error: {:?}", e);
     }
+}
+
+/// Initialize logging for the service
+fn init_service_logging() {
+    use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
+
+    // Try to initialize logging - ignore errors if already initialized
+    let _ = tracing_subscriber::registry()
+        .with(EnvFilter::new("info"))
+        .with(tracing_subscriber::fmt::layer())
+        .try_init();
 }
 
 /// Actual service implementation
 fn run_service(_arguments: Vec<OsString>) -> Result<()> {
-    // Load config path and role from registry (set during install)
-    let (config_path, role) = load_service_config()?;
-
     // Create a channel to receive stop events
     let (shutdown_tx, shutdown_rx) = mpsc::channel();
 
-    // Register service control handler
+    // Register service control handler FIRST - this must happen quickly
     let shutdown_tx_clone = shutdown_tx.clone();
     let event_handler = move |control_event| -> ServiceControlHandlerResult {
         match control_event {
@@ -355,21 +366,72 @@ fn run_service(_arguments: Vec<OsString>) -> Result<()> {
     let status_handle = service_control_handler::register(SERVICE_NAME, event_handler)
         .context("Failed to register service control handler")?;
 
-    // Report service as starting
+    // Report service as starting immediately
     status_handle
         .set_service_status(ServiceStatus {
             service_type: SERVICE_TYPE,
             current_state: ServiceState::StartPending,
             controls_accepted: ServiceControlAccept::empty(),
             exit_code: ServiceExitCode::Win32(0),
-            checkpoint: 0,
-            wait_hint: Duration::from_secs(10),
+            checkpoint: 1,
+            wait_hint: Duration::from_secs(30),
             process_id: None,
         })
         .context("Failed to set service status")?;
 
-    // Load configuration
-    let config = Config::load(&config_path).context("Failed to load configuration")?;
+    info!("Service starting, loading configuration from registry...");
+
+    // Now load config from registry (after we've registered with SCM)
+    let (config_path, role) = match load_service_config() {
+        Ok(cfg) => cfg,
+        Err(e) => {
+            error!("Failed to load service config from registry: {:?}", e);
+            // Report failure and exit
+            let _ = status_handle.set_service_status(ServiceStatus {
+                service_type: SERVICE_TYPE,
+                current_state: ServiceState::Stopped,
+                controls_accepted: ServiceControlAccept::empty(),
+                exit_code: ServiceExitCode::Win32(1),
+                checkpoint: 0,
+                wait_hint: Duration::default(),
+                process_id: None,
+            });
+            return Err(e);
+        }
+    };
+
+    info!("Config path: {:?}, Role: {}", config_path, role);
+
+    // Update checkpoint to show progress
+    status_handle
+        .set_service_status(ServiceStatus {
+            service_type: SERVICE_TYPE,
+            current_state: ServiceState::StartPending,
+            controls_accepted: ServiceControlAccept::empty(),
+            exit_code: ServiceExitCode::Win32(0),
+            checkpoint: 2,
+            wait_hint: Duration::from_secs(30),
+            process_id: None,
+        })
+        .ok();
+
+    // Load configuration file
+    let config = match Config::load(&config_path) {
+        Ok(cfg) => cfg,
+        Err(e) => {
+            error!("Failed to load config file {:?}: {:?}", config_path, e);
+            let _ = status_handle.set_service_status(ServiceStatus {
+                service_type: SERVICE_TYPE,
+                current_state: ServiceState::Stopped,
+                controls_accepted: ServiceControlAccept::empty(),
+                exit_code: ServiceExitCode::Win32(1),
+                checkpoint: 0,
+                wait_hint: Duration::default(),
+                process_id: None,
+            });
+            anyhow::bail!("Failed to load configuration: {}", e);
+        }
+    };
 
     // Determine role
     let vpn_role = match role.as_str() {
@@ -377,12 +439,55 @@ fn run_service(_arguments: Vec<OsString>) -> Result<()> {
         _ => VpnRole::Client,
     };
 
+    // Update checkpoint
+    status_handle
+        .set_service_status(ServiceStatus {
+            service_type: SERVICE_TYPE,
+            current_state: ServiceState::StartPending,
+            controls_accepted: ServiceControlAccept::empty(),
+            exit_code: ServiceExitCode::Win32(0),
+            checkpoint: 3,
+            wait_hint: Duration::from_secs(30),
+            process_id: None,
+        })
+        .ok();
+
     // Create VPN engine
-    let mut engine = VpnEngine::new(config, vpn_role).context("Failed to create VPN engine")?;
+    let mut engine = match VpnEngine::new(config, vpn_role) {
+        Ok(e) => e,
+        Err(e) => {
+            error!("Failed to create VPN engine: {:?}", e);
+            let _ = status_handle.set_service_status(ServiceStatus {
+                service_type: SERVICE_TYPE,
+                current_state: ServiceState::Stopped,
+                controls_accepted: ServiceControlAccept::empty(),
+                exit_code: ServiceExitCode::Win32(1),
+                checkpoint: 0,
+                wait_hint: Duration::default(),
+                process_id: None,
+            });
+            anyhow::bail!("Failed to create VPN engine: {}", e);
+        }
+    };
     let engine_shutdown_tx = engine.create_shutdown_handle();
 
     // Create tokio runtime for async operations
-    let runtime = tokio::runtime::Runtime::new().context("Failed to create tokio runtime")?;
+    let runtime = match tokio::runtime::Runtime::new() {
+        Ok(r) => r,
+        Err(e) => {
+            error!("Failed to create tokio runtime: {:?}", e);
+            let _ = status_handle.set_service_status(ServiceStatus {
+                service_type: SERVICE_TYPE,
+                current_state: ServiceState::Stopped,
+                controls_accepted: ServiceControlAccept::empty(),
+                exit_code: ServiceExitCode::Win32(1),
+                checkpoint: 0,
+                wait_hint: Duration::default(),
+                process_id: None,
+            });
+            anyhow::bail!("Failed to create tokio runtime: {}", e);
+        }
+    };
 
     // Start the VPN engine in a background task
     let engine_handle = runtime.spawn(async move {
