@@ -310,11 +310,86 @@ impl ControlServer {
         Ok(())
     }
 
+    /// Start the control server (Windows named pipe implementation)
     #[cfg(windows)]
     pub async fn start(&self) -> Result<()> {
-        // Windows named pipe implementation would go here
-        // For now, return an error indicating it's not implemented
-        Err(Error::Config("Control socket not yet implemented on Windows".into()))
+        use tokio::net::windows::named_pipe::ServerOptions;
+
+        let pipe_name = self.socket_path.to_string_lossy().to_string();
+
+        log::info!("Control socket listening on {}", pipe_name);
+
+        // Create first pipe instance
+        let mut server = ServerOptions::new()
+            .first_pipe_instance(true)
+            .create(&pipe_name)
+            .map_err(|e| Error::Config(format!("Failed to create named pipe: {}", e)))?;
+
+        loop {
+            // Wait for a client to connect
+            if let Err(e) = server.connect().await {
+                log::warn!("Failed to accept pipe connection: {}", e);
+                continue;
+            }
+
+            let control_state = self.control_state.clone();
+            let shared_stats = self.shared_stats.clone();
+
+            // Create a new pipe instance for the next client before handling this one
+            let new_server = match ServerOptions::new().create(&pipe_name) {
+                Ok(s) => s,
+                Err(e) => {
+                    log::warn!("Failed to create next pipe instance: {}", e);
+                    continue;
+                }
+            };
+
+            // Take ownership of the connected pipe and give the new one to the server
+            let connected_pipe = std::mem::replace(&mut server, new_server);
+
+            // Handle the connection in a separate task
+            tokio::spawn(async move {
+                if let Err(e) = Self::handle_connection_windows(connected_pipe, control_state, shared_stats).await {
+                    log::debug!("Control connection error: {}", e);
+                }
+            });
+        }
+    }
+
+    #[cfg(windows)]
+    async fn handle_connection_windows(
+        pipe: tokio::net::windows::named_pipe::NamedPipeServer,
+        control_state: Arc<RwLock<ControlState>>,
+        shared_stats: SharedStatsRef,
+    ) -> Result<()> {
+        let (reader, mut writer) = tokio::io::split(pipe);
+        let mut reader = BufReader::new(reader);
+        let mut line = String::new();
+
+        // Read request (single line JSON)
+        reader.read_line(&mut line).await
+            .map_err(|e| Error::Config(format!("Failed to read request: {}", e)))?;
+
+        if line.is_empty() {
+            return Ok(()); // Client disconnected
+        }
+
+        let request: ControlRequest = serde_json::from_str(line.trim())
+            .map_err(|e| Error::Config(format!("Invalid request: {}", e)))?;
+
+        let response = Self::handle_request(request, &control_state, &shared_stats).await;
+
+        let response_json = serde_json::to_string(&response)
+            .map_err(|e| Error::Config(format!("Failed to serialize response: {}", e)))?;
+
+        writer.write_all(response_json.as_bytes()).await
+            .map_err(|e| Error::Config(format!("Failed to write response: {}", e)))?;
+        writer.write_all(b"\n").await
+            .map_err(|e| Error::Config(format!("Failed to write newline: {}", e)))?;
+        writer.flush().await
+            .map_err(|e| Error::Config(format!("Failed to flush: {}", e)))?;
+
+        Ok(())
     }
 
     async fn handle_request(
@@ -348,9 +423,16 @@ impl ControlServer {
         }
     }
 
-    /// Cleanup the socket file
+    /// Cleanup the socket file (Unix only - Windows named pipes are automatically cleaned up)
+    #[cfg(unix)]
     pub fn cleanup(&self) {
         let _ = std::fs::remove_file(&self.socket_path);
+    }
+
+    /// Cleanup (no-op on Windows - named pipes are automatically cleaned up)
+    #[cfg(windows)]
+    pub fn cleanup(&self) {
+        // Named pipes are automatically cleaned up when the server closes
     }
 }
 
@@ -407,9 +489,57 @@ impl ControlClient {
         Ok(response)
     }
 
+    /// Send a request and get a response (Windows named pipe implementation)
     #[cfg(windows)]
-    pub async fn request(&self, _request: ControlRequest) -> Result<ControlResponse> {
-        Err(Error::Config("Control socket not yet implemented on Windows".into()))
+    pub async fn request(&self, request: ControlRequest) -> Result<ControlResponse> {
+        use tokio::net::windows::named_pipe::ClientOptions;
+
+        let pipe_name = self.socket_path.to_string_lossy().to_string();
+
+        // Try to connect with retries (pipe might be busy)
+        let pipe = {
+            let mut attempts = 0;
+            loop {
+                match ClientOptions::new().open(&pipe_name) {
+                    Ok(pipe) => break pipe,
+                    Err(e) if attempts < 3 => {
+                        // Pipe might be busy, wait and retry
+                        tokio::time::sleep(Duration::from_millis(100)).await;
+                        attempts += 1;
+                    }
+                    Err(e) => {
+                        return Err(Error::Config(format!(
+                            "Failed to connect to control socket at {}: {}. Is the VPN running?",
+                            pipe_name, e
+                        )));
+                    }
+                }
+            }
+        };
+
+        let (reader, mut writer) = tokio::io::split(pipe);
+        let mut reader = BufReader::new(reader);
+
+        // Send request
+        let request_json = serde_json::to_string(&request)
+            .map_err(|e| Error::Config(format!("Failed to serialize request: {}", e)))?;
+        writer.write_all(request_json.as_bytes()).await
+            .map_err(|e| Error::Config(format!("Failed to send request: {}", e)))?;
+        writer.write_all(b"\n").await
+            .map_err(|e| Error::Config(format!("Failed to send newline: {}", e)))?;
+        writer.flush().await
+            .map_err(|e| Error::Config(format!("Failed to flush: {}", e)))?;
+
+        // Read response
+        let mut line = String::new();
+        tokio::time::timeout(Duration::from_secs(5), reader.read_line(&mut line)).await
+            .map_err(|_| Error::Config("Timeout waiting for response".into()))?
+            .map_err(|e| Error::Config(format!("Failed to read response: {}", e)))?;
+
+        let response: ControlResponse = serde_json::from_str(line.trim())
+            .map_err(|e| Error::Config(format!("Invalid response: {}", e)))?;
+
+        Ok(response)
     }
 
     /// Get status from the running VPN
