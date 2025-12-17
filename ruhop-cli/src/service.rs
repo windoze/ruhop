@@ -35,6 +35,9 @@ const SERVICE_DESCRIPTION: &str = "Ruhop VPN - A Rust implementation of GoHop pr
 /// Service type - we run as our own process
 const SERVICE_TYPE: ServiceType = ServiceType::OWN_PROCESS;
 
+/// Registry key for storing service configuration
+const SERVICE_REGISTRY_KEY: &str = r"SYSTEM\CurrentControlSet\Services\ruhop\Parameters";
+
 /// Install the service
 pub fn install_service(config_path: &PathBuf, role: &str) -> Result<()> {
     let manager_access = ServiceManagerAccess::CONNECT | ServiceManagerAccess::CREATE_SERVICE;
@@ -44,7 +47,7 @@ pub fn install_service(config_path: &PathBuf, role: &str) -> Result<()> {
     // Get the path to our executable
     let service_binary_path = std::env::current_exe().context("Failed to get current executable path")?;
 
-    // Build service arguments: service-run --config <path> --role <role>
+    // Canonicalize config path
     let config_path_str = config_path
         .canonicalize()
         .unwrap_or_else(|_| config_path.clone())
@@ -60,10 +63,6 @@ pub fn install_service(config_path: &PathBuf, role: &str) -> Result<()> {
         executable_path: service_binary_path,
         launch_arguments: vec![
             OsString::from("service-run"),
-            OsString::from("--config"),
-            OsString::from(&config_path_str),
-            OsString::from("--role"),
-            OsString::from(role),
         ],
         dependencies: vec![],
         account_name: None, // LocalSystem
@@ -79,6 +78,9 @@ pub fn install_service(config_path: &PathBuf, role: &str) -> Result<()> {
         .set_description(SERVICE_DESCRIPTION)
         .context("Failed to set service description")?;
 
+    // Store config path and role in registry
+    save_service_config(&config_path_str, role)?;
+
     println!("Service '{}' installed successfully.", SERVICE_NAME);
     println!("Configuration: {}", config_path_str);
     println!("Role: {}", role);
@@ -87,6 +89,114 @@ pub fn install_service(config_path: &PathBuf, role: &str) -> Result<()> {
     println!("Or use: sc start {}", SERVICE_NAME);
 
     Ok(())
+}
+
+/// Save service configuration to registry
+fn save_service_config(config_path: &str, role: &str) -> Result<()> {
+    use std::process::Command;
+
+    // Create the Parameters subkey and set values using reg.exe
+    // This is more reliable than using winreg crate
+
+    // Set ConfigPath
+    let output = Command::new("reg")
+        .args([
+            "add",
+            SERVICE_REGISTRY_KEY,
+            "/v", "ConfigPath",
+            "/t", "REG_SZ",
+            "/d", config_path,
+            "/f",
+        ])
+        .output()
+        .context("Failed to run reg command")?;
+
+    if !output.status.success() {
+        anyhow::bail!(
+            "Failed to save ConfigPath to registry: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+
+    // Set Role
+    let output = Command::new("reg")
+        .args([
+            "add",
+            SERVICE_REGISTRY_KEY,
+            "/v", "Role",
+            "/t", "REG_SZ",
+            "/d", role,
+            "/f",
+        ])
+        .output()
+        .context("Failed to run reg command")?;
+
+    if !output.status.success() {
+        anyhow::bail!(
+            "Failed to save Role to registry: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+
+    Ok(())
+}
+
+/// Load service configuration from registry
+fn load_service_config() -> Result<(PathBuf, String)> {
+    use std::process::Command;
+
+    // Query ConfigPath
+    let output = Command::new("reg")
+        .args([
+            "query",
+            SERVICE_REGISTRY_KEY,
+            "/v", "ConfigPath",
+        ])
+        .output()
+        .context("Failed to query registry")?;
+
+    let config_path = if output.status.success() {
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        parse_reg_value(&stdout, "ConfigPath")
+            .unwrap_or_else(|| r"C:\ProgramData\Ruhop\ruhop.toml".to_string())
+    } else {
+        r"C:\ProgramData\Ruhop\ruhop.toml".to_string()
+    };
+
+    // Query Role
+    let output = Command::new("reg")
+        .args([
+            "query",
+            SERVICE_REGISTRY_KEY,
+            "/v", "Role",
+        ])
+        .output()
+        .context("Failed to query registry")?;
+
+    let role = if output.status.success() {
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        parse_reg_value(&stdout, "Role")
+            .unwrap_or_else(|| "client".to_string())
+    } else {
+        "client".to_string()
+    };
+
+    Ok((PathBuf::from(config_path), role))
+}
+
+/// Parse a value from reg query output
+fn parse_reg_value(output: &str, value_name: &str) -> Option<String> {
+    for line in output.lines() {
+        let line = line.trim();
+        if line.contains(value_name) && line.contains("REG_SZ") {
+            // Format: "    ValueName    REG_SZ    Value"
+            let parts: Vec<&str> = line.split("REG_SZ").collect();
+            if parts.len() >= 2 {
+                return Some(parts[1].trim().to_string());
+            }
+        }
+    }
+    None
 }
 
 /// Uninstall the service
@@ -222,31 +332,9 @@ fn service_main(arguments: Vec<OsString>) {
 }
 
 /// Actual service implementation
-fn run_service(arguments: Vec<OsString>) -> Result<()> {
-    // Parse arguments: service-run --config <path> --role <role>
-    let mut config_path = PathBuf::from("C:\\ProgramData\\Ruhop\\ruhop.toml");
-    let mut role = String::from("client");
-
-    let args: Vec<String> = arguments.iter().map(|s| s.to_string_lossy().to_string()).collect();
-    let mut i = 0;
-    while i < args.len() {
-        match args[i].as_str() {
-            "--config" => {
-                if i + 1 < args.len() {
-                    config_path = PathBuf::from(&args[i + 1]);
-                    i += 1;
-                }
-            }
-            "--role" => {
-                if i + 1 < args.len() {
-                    role = args[i + 1].clone();
-                    i += 1;
-                }
-            }
-            _ => {}
-        }
-        i += 1;
-    }
+fn run_service(_arguments: Vec<OsString>) -> Result<()> {
+    // Load config path and role from registry (set during install)
+    let (config_path, role) = load_service_config()?;
 
     // Create a channel to receive stop events
     let (shutdown_tx, shutdown_rx) = mpsc::channel();
