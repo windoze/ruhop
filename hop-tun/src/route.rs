@@ -322,6 +322,7 @@ impl RouteManager {
                 // Ignore "File exists" (EEXIST) - route already exists which is fine
                 if err_str.contains("File exists") || err_str.contains("os error 17") {
                     log::debug!("Route already exists: {}", route);
+                    return Ok(());
                 }
                 // On Windows, try using the route command as fallback
                 #[cfg(windows)]

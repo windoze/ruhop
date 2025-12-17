@@ -77,8 +77,8 @@ pub fn parse_dns_server(s: &str) -> Result<DnsServerSpec> {
     }
 
     // Check for DoT URL
-    if s.starts_with("tls://") {
-        let rest = &s[6..]; // Skip "tls://"
+    if let Some(rest) = s.strip_prefix("tls://") {
+        // Skip "tls://"
         let (hostname, port) = if let Some(colon_pos) = rest.rfind(':') {
             // Check if what follows the colon is a valid port number
             let potential_port = &rest[colon_pos + 1..];
