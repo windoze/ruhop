@@ -334,15 +334,42 @@ fn service_main(arguments: Vec<OsString>) {
     }
 }
 
-/// Initialize logging for the service
+/// Initialize logging for the service - writes to a log file
 fn init_service_logging() {
+    use std::fs::OpenOptions;
     use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
 
-    // Try to initialize logging - ignore errors if already initialized
-    let _ = tracing_subscriber::registry()
-        .with(EnvFilter::new("info"))
-        .with(tracing_subscriber::fmt::layer())
-        .try_init();
+    // Create log directory
+    let log_dir = std::path::PathBuf::from(r"C:\ProgramData\Ruhop");
+    let _ = std::fs::create_dir_all(&log_dir);
+
+    // Open log file
+    let log_path = log_dir.join("ruhop-service.log");
+    let log_file = OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&log_path);
+
+    match log_file {
+        Ok(file) => {
+            // Use file-based logging
+            let _ = tracing_subscriber::registry()
+                .with(EnvFilter::new("debug"))
+                .with(
+                    tracing_subscriber::fmt::layer()
+                        .with_writer(std::sync::Mutex::new(file))
+                        .with_ansi(false)
+                )
+                .try_init();
+        }
+        Err(_) => {
+            // Fallback to default (won't be visible but won't crash)
+            let _ = tracing_subscriber::registry()
+                .with(EnvFilter::new("info"))
+                .with(tracing_subscriber::fmt::layer())
+                .try_init();
+        }
+    }
 }
 
 /// Actual service implementation
