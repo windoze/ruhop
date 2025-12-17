@@ -33,10 +33,82 @@ fn get_interface_index(name: &str) -> Result<u32> {
 
 #[cfg(windows)]
 fn get_interface_index(name: &str) -> Result<u32> {
-    // On Windows, net-route handles interface index differently
-    // For now, return an error if interface is specified
+    use std::process::Command;
+
+    // Try multiple methods to get the interface index on Windows
+
+    // Method 1: Try Get-NetAdapter by exact name
+    let output = Command::new("powershell")
+        .args([
+            "-NoProfile",
+            "-Command",
+            &format!(
+                "(Get-NetAdapter -Name '{}' -ErrorAction SilentlyContinue).ifIndex",
+                name.replace("'", "''")
+            ),
+        ])
+        .output();
+
+    if let Ok(output) = output {
+        if output.status.success() {
+            let output_str = String::from_utf8_lossy(&output.stdout);
+            let index_str = output_str.trim();
+            if !index_str.is_empty() {
+                if let Ok(index) = index_str.parse::<u32>() {
+                    return Ok(index);
+                }
+            }
+        }
+    }
+
+    // Method 2: Try Get-NetAdapter with wildcard match (WinTun adapters might have different names)
+    let output = Command::new("powershell")
+        .args([
+            "-NoProfile",
+            "-Command",
+            &format!(
+                "(Get-NetAdapter -Name '*{}*' -ErrorAction SilentlyContinue | Select-Object -First 1).ifIndex",
+                name.replace("'", "''")
+            ),
+        ])
+        .output();
+
+    if let Ok(output) = output {
+        if output.status.success() {
+            let output_str = String::from_utf8_lossy(&output.stdout);
+            let index_str = output_str.trim();
+            if !index_str.is_empty() {
+                if let Ok(index) = index_str.parse::<u32>() {
+                    return Ok(index);
+                }
+            }
+        }
+    }
+
+    // Method 3: Try Get-NetAdapter filtering by InterfaceDescription containing "Wintun"
+    let output = Command::new("powershell")
+        .args([
+            "-NoProfile",
+            "-Command",
+            "(Get-NetAdapter | Where-Object { $_.InterfaceDescription -like '*Wintun*' } | Select-Object -First 1).ifIndex",
+        ])
+        .output();
+
+    if let Ok(output) = output {
+        if output.status.success() {
+            let output_str = String::from_utf8_lossy(&output.stdout);
+            let index_str = output_str.trim();
+            if !index_str.is_empty() {
+                if let Ok(index) = index_str.parse::<u32>() {
+                    log::debug!("Found WinTun adapter with index {} for '{}'", index, name);
+                    return Ok(index);
+                }
+            }
+        }
+    }
+
     Err(Error::Config(format!(
-        "interface routing by name not supported on Windows: {}",
+        "interface '{}' not found. Make sure the TUN adapter is created.",
         name
     )))
 }
