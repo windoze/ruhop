@@ -12,6 +12,9 @@ use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilte
 
 use ruhop_engine::{Config, ControlClient, VpnEngine, VpnRole, DEFAULT_SOCKET_PATH};
 
+#[cfg(windows)]
+mod service;
+
 /// Ruhop VPN - A Rust implementation of GoHop protocol
 #[derive(Parser)]
 #[command(name = "ruhop")]
@@ -50,11 +53,61 @@ enum Commands {
         #[arg(short, long, default_value = "ruhop.toml")]
         output: PathBuf,
     },
+
+    /// Windows service management (Windows only)
+    #[cfg(windows)]
+    Service {
+        #[command(subcommand)]
+        action: ServiceAction,
+    },
+
+    /// Internal: Run as Windows service (called by SCM)
+    #[cfg(windows)]
+    #[command(hide = true)]
+    ServiceRun {
+        /// Path to configuration file
+        #[arg(long)]
+        config: PathBuf,
+
+        /// Role (client or server)
+        #[arg(long, default_value = "client")]
+        role: String,
+    },
+}
+
+/// Windows service actions
+#[cfg(windows)]
+#[derive(Subcommand)]
+enum ServiceAction {
+    /// Install the service
+    Install {
+        /// Role to run as (client or server)
+        #[arg(short, long, default_value = "client")]
+        role: String,
+    },
+
+    /// Uninstall the service
+    Uninstall,
+
+    /// Start the service
+    Start,
+
+    /// Stop the service
+    Stop,
+
+    /// Query service status
+    Status,
 }
 
 #[tokio::main]
 async fn main() -> Result<()> {
     let cli = Cli::parse();
+
+    // Handle service-run command before initializing logging (service has its own logging)
+    #[cfg(windows)]
+    if let Commands::ServiceRun { .. } = &cli.command {
+        return service::run_as_service();
+    }
 
     // Initialize logging
     init_logging(&cli.log_level);
@@ -64,6 +117,21 @@ async fn main() -> Result<()> {
         Commands::Client => run_client(cli.config).await,
         Commands::Status { socket } => show_status(socket).await,
         Commands::GenConfig { output } => generate_config(output),
+        #[cfg(windows)]
+        Commands::Service { action } => handle_service_action(action, &cli.config),
+        #[cfg(windows)]
+        Commands::ServiceRun { .. } => unreachable!(), // Handled above
+    }
+}
+
+#[cfg(windows)]
+fn handle_service_action(action: ServiceAction, config_path: &PathBuf) -> Result<()> {
+    match action {
+        ServiceAction::Install { role } => service::install_service(config_path, &role),
+        ServiceAction::Uninstall => service::uninstall_service(),
+        ServiceAction::Start => service::start_service(),
+        ServiceAction::Stop => service::stop_service(),
+        ServiceAction::Status => service::query_service_status(),
     }
 }
 

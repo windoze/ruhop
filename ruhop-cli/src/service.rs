@@ -1,0 +1,363 @@
+//! Windows Service support for Ruhop VPN
+//!
+//! This module provides the ability to install, uninstall, start, and stop
+//! Ruhop as a Windows service.
+
+use std::ffi::OsString;
+use std::path::PathBuf;
+use std::sync::mpsc;
+use std::time::Duration;
+
+use anyhow::{Context, Result};
+use tracing::{error, info};
+use windows_service::{
+    define_windows_service,
+    service::{
+        ServiceAccess, ServiceControl, ServiceControlAccept, ServiceErrorControl, ServiceExitCode,
+        ServiceInfo, ServiceStartType, ServiceState, ServiceStatus, ServiceType,
+    },
+    service_control_handler::{self, ServiceControlHandlerResult},
+    service_dispatcher,
+    service_manager::{ServiceManager, ServiceManagerAccess},
+};
+
+use ruhop_engine::{Config, VpnEngine, VpnRole};
+
+/// Service name used for Windows Service Control Manager
+pub const SERVICE_NAME: &str = "ruhop";
+
+/// Display name shown in Windows Services
+const SERVICE_DISPLAY_NAME: &str = "Ruhop VPN";
+
+/// Service description
+const SERVICE_DESCRIPTION: &str = "Ruhop VPN - A Rust implementation of GoHop protocol with port hopping capabilities";
+
+/// Service type - we run as our own process
+const SERVICE_TYPE: ServiceType = ServiceType::OWN_PROCESS;
+
+/// Install the service
+pub fn install_service(config_path: &PathBuf, role: &str) -> Result<()> {
+    let manager_access = ServiceManagerAccess::CONNECT | ServiceManagerAccess::CREATE_SERVICE;
+    let service_manager =
+        ServiceManager::local_computer(None::<&str>, manager_access).context("Failed to connect to service manager")?;
+
+    // Get the path to our executable
+    let service_binary_path = std::env::current_exe().context("Failed to get current executable path")?;
+
+    // Build service arguments: service-run --config <path> --role <role>
+    let config_path_str = config_path
+        .canonicalize()
+        .unwrap_or_else(|_| config_path.clone())
+        .to_string_lossy()
+        .to_string();
+
+    let service_info = ServiceInfo {
+        name: OsString::from(SERVICE_NAME),
+        display_name: OsString::from(SERVICE_DISPLAY_NAME),
+        service_type: SERVICE_TYPE,
+        start_type: ServiceStartType::AutoStart,
+        error_control: ServiceErrorControl::Normal,
+        executable_path: service_binary_path,
+        launch_arguments: vec![
+            OsString::from("service-run"),
+            OsString::from("--config"),
+            OsString::from(&config_path_str),
+            OsString::from("--role"),
+            OsString::from(role),
+        ],
+        dependencies: vec![],
+        account_name: None, // LocalSystem
+        account_password: None,
+    };
+
+    let service = service_manager
+        .create_service(&service_info, ServiceAccess::CHANGE_CONFIG | ServiceAccess::START)
+        .context("Failed to create service")?;
+
+    // Set service description
+    service
+        .set_description(SERVICE_DESCRIPTION)
+        .context("Failed to set service description")?;
+
+    println!("Service '{}' installed successfully.", SERVICE_NAME);
+    println!("Configuration: {}", config_path_str);
+    println!("Role: {}", role);
+    println!();
+    println!("To start the service, run: ruhop service start");
+    println!("Or use: sc start {}", SERVICE_NAME);
+
+    Ok(())
+}
+
+/// Uninstall the service
+pub fn uninstall_service() -> Result<()> {
+    let manager_access = ServiceManagerAccess::CONNECT;
+    let service_manager =
+        ServiceManager::local_computer(None::<&str>, manager_access).context("Failed to connect to service manager")?;
+
+    let service_access = ServiceAccess::QUERY_STATUS | ServiceAccess::STOP | ServiceAccess::DELETE;
+    let service = service_manager
+        .open_service(SERVICE_NAME, service_access)
+        .context("Failed to open service. Is it installed?")?;
+
+    // Stop the service if running
+    let status = service.query_status().context("Failed to query service status")?;
+    if status.current_state != ServiceState::Stopped {
+        println!("Stopping service...");
+        service.stop().context("Failed to stop service")?;
+
+        // Wait for service to stop
+        let mut attempts = 0;
+        loop {
+            std::thread::sleep(Duration::from_millis(500));
+            let status = service.query_status()?;
+            if status.current_state == ServiceState::Stopped {
+                break;
+            }
+            attempts += 1;
+            if attempts > 20 {
+                anyhow::bail!("Timeout waiting for service to stop");
+            }
+        }
+    }
+
+    service.delete().context("Failed to delete service")?;
+
+    println!("Service '{}' uninstalled successfully.", SERVICE_NAME);
+
+    Ok(())
+}
+
+/// Start the service
+pub fn start_service() -> Result<()> {
+    let manager_access = ServiceManagerAccess::CONNECT;
+    let service_manager =
+        ServiceManager::local_computer(None::<&str>, manager_access).context("Failed to connect to service manager")?;
+
+    let service = service_manager
+        .open_service(SERVICE_NAME, ServiceAccess::START | ServiceAccess::QUERY_STATUS)
+        .context("Failed to open service. Is it installed?")?;
+
+    let status = service.query_status().context("Failed to query service status")?;
+    if status.current_state == ServiceState::Running {
+        println!("Service is already running.");
+        return Ok(());
+    }
+
+    service
+        .start::<String>(&[])
+        .context("Failed to start service")?;
+
+    println!("Service '{}' started.", SERVICE_NAME);
+
+    Ok(())
+}
+
+/// Stop the service
+pub fn stop_service() -> Result<()> {
+    let manager_access = ServiceManagerAccess::CONNECT;
+    let service_manager =
+        ServiceManager::local_computer(None::<&str>, manager_access).context("Failed to connect to service manager")?;
+
+    let service = service_manager
+        .open_service(SERVICE_NAME, ServiceAccess::STOP | ServiceAccess::QUERY_STATUS)
+        .context("Failed to open service. Is it installed?")?;
+
+    let status = service.query_status().context("Failed to query service status")?;
+    if status.current_state == ServiceState::Stopped {
+        println!("Service is already stopped.");
+        return Ok(());
+    }
+
+    service.stop().context("Failed to stop service")?;
+
+    println!("Service '{}' stop requested.", SERVICE_NAME);
+
+    Ok(())
+}
+
+/// Query service status
+pub fn query_service_status() -> Result<()> {
+    let manager_access = ServiceManagerAccess::CONNECT;
+    let service_manager =
+        ServiceManager::local_computer(None::<&str>, manager_access).context("Failed to connect to service manager")?;
+
+    let service = service_manager
+        .open_service(SERVICE_NAME, ServiceAccess::QUERY_STATUS | ServiceAccess::QUERY_CONFIG)
+        .context("Failed to open service. Is it installed?")?;
+
+    let status = service.query_status().context("Failed to query service status")?;
+
+    let state_str = match status.current_state {
+        ServiceState::Stopped => "Stopped",
+        ServiceState::StartPending => "Starting",
+        ServiceState::StopPending => "Stopping",
+        ServiceState::Running => "Running",
+        ServiceState::ContinuePending => "Resuming",
+        ServiceState::PausePending => "Pausing",
+        ServiceState::Paused => "Paused",
+    };
+
+    println!("Service: {}", SERVICE_NAME);
+    println!("State:   {}", state_str);
+
+    Ok(())
+}
+
+// Define the Windows service entry point
+define_windows_service!(ffi_service_main, service_main);
+
+/// Entry point when running as a Windows service
+pub fn run_as_service() -> Result<()> {
+    // This function is called by the service dispatcher
+    service_dispatcher::start(SERVICE_NAME, ffi_service_main)
+        .context("Failed to start service dispatcher")
+}
+
+/// Service main function called by Windows SCM
+fn service_main(arguments: Vec<OsString>) {
+    if let Err(e) = run_service(arguments) {
+        error!("Service error: {}", e);
+    }
+}
+
+/// Actual service implementation
+fn run_service(arguments: Vec<OsString>) -> Result<()> {
+    // Parse arguments: service-run --config <path> --role <role>
+    let mut config_path = PathBuf::from("C:\\ProgramData\\Ruhop\\ruhop.toml");
+    let mut role = String::from("client");
+
+    let args: Vec<String> = arguments.iter().map(|s| s.to_string_lossy().to_string()).collect();
+    let mut i = 0;
+    while i < args.len() {
+        match args[i].as_str() {
+            "--config" => {
+                if i + 1 < args.len() {
+                    config_path = PathBuf::from(&args[i + 1]);
+                    i += 1;
+                }
+            }
+            "--role" => {
+                if i + 1 < args.len() {
+                    role = args[i + 1].clone();
+                    i += 1;
+                }
+            }
+            _ => {}
+        }
+        i += 1;
+    }
+
+    // Create a channel to receive stop events
+    let (shutdown_tx, shutdown_rx) = mpsc::channel();
+
+    // Register service control handler
+    let shutdown_tx_clone = shutdown_tx.clone();
+    let event_handler = move |control_event| -> ServiceControlHandlerResult {
+        match control_event {
+            ServiceControl::Stop | ServiceControl::Shutdown => {
+                let _ = shutdown_tx_clone.send(());
+                ServiceControlHandlerResult::NoError
+            }
+            ServiceControl::Interrogate => ServiceControlHandlerResult::NoError,
+            _ => ServiceControlHandlerResult::NotImplemented,
+        }
+    };
+
+    let status_handle = service_control_handler::register(SERVICE_NAME, event_handler)
+        .context("Failed to register service control handler")?;
+
+    // Report service as starting
+    status_handle
+        .set_service_status(ServiceStatus {
+            service_type: SERVICE_TYPE,
+            current_state: ServiceState::StartPending,
+            controls_accepted: ServiceControlAccept::empty(),
+            exit_code: ServiceExitCode::Win32(0),
+            checkpoint: 0,
+            wait_hint: Duration::from_secs(10),
+            process_id: None,
+        })
+        .context("Failed to set service status")?;
+
+    // Load configuration
+    let config = Config::load(&config_path).context("Failed to load configuration")?;
+
+    // Determine role
+    let vpn_role = match role.as_str() {
+        "server" => VpnRole::Server,
+        _ => VpnRole::Client,
+    };
+
+    // Create VPN engine
+    let mut engine = VpnEngine::new(config, vpn_role).context("Failed to create VPN engine")?;
+    let engine_shutdown_tx = engine.create_shutdown_handle();
+
+    // Create tokio runtime for async operations
+    let runtime = tokio::runtime::Runtime::new().context("Failed to create tokio runtime")?;
+
+    // Start the VPN engine in a background task
+    let engine_handle = runtime.spawn(async move {
+        if let Err(e) = engine.start().await {
+            error!("VPN engine error: {}", e);
+        }
+    });
+
+    // Report service as running
+    status_handle
+        .set_service_status(ServiceStatus {
+            service_type: SERVICE_TYPE,
+            current_state: ServiceState::Running,
+            controls_accepted: ServiceControlAccept::STOP | ServiceControlAccept::SHUTDOWN,
+            exit_code: ServiceExitCode::Win32(0),
+            checkpoint: 0,
+            wait_hint: Duration::default(),
+            process_id: None,
+        })
+        .context("Failed to set service status")?;
+
+    info!("Ruhop VPN service started as {}", role);
+
+    // Wait for stop signal
+    let _ = shutdown_rx.recv();
+
+    info!("Ruhop VPN service stopping...");
+
+    // Report service as stopping
+    status_handle
+        .set_service_status(ServiceStatus {
+            service_type: SERVICE_TYPE,
+            current_state: ServiceState::StopPending,
+            controls_accepted: ServiceControlAccept::empty(),
+            exit_code: ServiceExitCode::Win32(0),
+            checkpoint: 0,
+            wait_hint: Duration::from_secs(10),
+            process_id: None,
+        })
+        .ok();
+
+    // Signal VPN engine to stop
+    let _ = engine_shutdown_tx.send(());
+
+    // Wait for engine to finish with timeout
+    runtime.block_on(async {
+        let _ = tokio::time::timeout(Duration::from_secs(5), engine_handle).await;
+    });
+
+    // Report service as stopped
+    status_handle
+        .set_service_status(ServiceStatus {
+            service_type: SERVICE_TYPE,
+            current_state: ServiceState::Stopped,
+            controls_accepted: ServiceControlAccept::empty(),
+            exit_code: ServiceExitCode::Win32(0),
+            checkpoint: 0,
+            wait_hint: Duration::default(),
+            process_id: None,
+        })
+        .ok();
+
+    info!("Ruhop VPN service stopped");
+
+    Ok(())
+}
