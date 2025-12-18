@@ -30,7 +30,7 @@ GoHop VPN 协议的 Rust 实现 - 一个支持端口跳跃的 UDP VPN，用于�
 | Linux x86_64 | `ruhop-linux-amd64.deb` | Debian/Ubuntu 包（含 systemd 服务） |
 | Linux aarch64 | `ruhop-linux-arm64.deb` | Debian/Ubuntu 包（含 systemd 服务） |
 | macOS | `ruhop-macos-universal.tar.gz` | 通用二进制文件（Intel + Apple Silicon） |
-| Windows | `ruhop-windows-amd64.zip` | 独立可执行文件 |
+| Windows | `ruhop-windows-amd64.zip` | 独立可执行文件（需自行下载 wintun.dll） |
 | Windows | `ruhop-windows-amd64-setup.exe` | NSIS 安装程序（包含 wintun.dll） |
 
 **Linux/macOS**：解压后直接运行（已保留可执行权限）：
