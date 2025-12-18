@@ -883,13 +883,17 @@ impl VpnEngine {
         }
 
         // Create TUN device with assigned IP
-        // The server allocates address pairs: server_peer gets odd IP, client gets even IP
-        // e.g., server_peer=10.139.0.13, client=10.139.0.14
-        // So peer IP = client IP - 1
+        // The server's TUN IP is the first usable IP in the subnet (network + 1)
+        // This is the gateway that all clients use to reach the VPN
+        // e.g., for 10.139.0.0/24: server TUN = 10.139.0.1, clients get 10.139.0.2+
         let server_tunnel_ip = match &tunnel_ip {
             IpAddress::V4(ip) => {
+                // Calculate network address from client IP and mask
                 let ip_u32 = u32::from_be_bytes(ip.octets());
-                Ipv4Addr::from((ip_u32 - 1).to_be_bytes())
+                let mask_bits = 0xFFFFFFFFu32 << (32 - mask);
+                let network = ip_u32 & mask_bits;
+                // Server TUN IP is network + 1
+                Ipv4Addr::from((network + 1).to_be_bytes())
             }
             _ => return Err(Error::Config("IPv6 not yet supported for client".to_string())),
         };
