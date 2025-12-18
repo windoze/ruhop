@@ -1378,8 +1378,9 @@ async fn handle_server_knock_multi(
     }
 
     log::info!(
-        "New client knock from {}: sid={}, assigned={}",
+        "New client knock from {} to local {}: sid={}, assigned={}",
         peer_addr,
+        local_addr,
         SessionId::new(sid),
         address_pair.client.ip
     );
@@ -1470,8 +1471,9 @@ async fn handle_server_handshake(
                 log::error!("Failed to send handshake response: {}", e);
             } else {
                 log::info!(
-                    "Sent handshake response to {}: ip={}",
+                    "Sent handshake response to {} from local {}: ip={}",
                     peer_addr,
+                    local_addr,
                     client.address_pair.client.ip
                 );
 
