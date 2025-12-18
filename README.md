@@ -88,6 +88,7 @@ mtu = 1400                        # MTU size
 log_level = "info"                # Logging level
 obfuscation = false               # Enable packet obfuscation
 heartbeat_interval = 30           # Heartbeat interval in seconds
+# tun_device = "ruhop0"           # TUN device name (ignored on macOS)
 
 [server]
 listen = "0.0.0.0"                # IP address to listen on

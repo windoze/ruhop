@@ -61,6 +61,7 @@ Edit `ruhop.toml` and set your pre-shared key and other options:
 key = "your-secret-key-here"
 mtu = 1400
 log_level = "info"
+# tun_device = "ruhop0"            # Optional: TUN device name (ignored on macOS)
 
 [server]
 listen = "0.0.0.0"                # IP address to bind

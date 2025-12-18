@@ -304,9 +304,16 @@ impl VpnEngine {
         // On macOS, don't set a name - let the system assign a utun device
         #[allow(unused_mut)] // mut needed on non-macOS platforms
         let mut tun_builder = TunConfig::builder();
+        #[cfg(target_os = "macos")]
+        {
+            if common_config.tun_device.is_some() {
+                log::info!("tun_device config is ignored on macOS (system auto-assigns utun device names)");
+            }
+        }
         #[cfg(not(target_os = "macos"))]
         {
-            tun_builder = tun_builder.name("ruhop");
+            let device_name = common_config.tun_device.as_deref().unwrap_or("ruhop");
+            tun_builder = tun_builder.name(device_name);
         }
         let tunnel_ip = server_config.get_tunnel_ip()?;
         let tun_config = tun_builder
@@ -907,9 +914,16 @@ impl VpnEngine {
         // On macOS, don't set a name - let the system assign a utun device
         #[allow(unused_mut)] // mut needed on non-macOS platforms
         let mut tun_builder = TunConfig::builder();
+        #[cfg(target_os = "macos")]
+        {
+            if common_config.tun_device.is_some() {
+                log::info!("tun_device config is ignored on macOS (system auto-assigns utun device names)");
+            }
+        }
         #[cfg(not(target_os = "macos"))]
         {
-            tun_builder = tun_builder.name("ruhop");
+            let device_name = common_config.tun_device.as_deref().unwrap_or("ruhop");
+            tun_builder = tun_builder.name(device_name);
         }
         let tun_config = tun_builder
             .ipv4_with_dest(tunnel_ipv4, mask, server_tunnel_ip)

@@ -154,6 +154,7 @@ mtu = 1400
 log_level = "info"
 obfuscation = false
 heartbeat_interval = 30
+# tun_device = "ruhop0"            # 可选：TUN 设备名称（macOS 上忽略）
 
 [server]
 listen = "0.0.0.0"                # 监听 IP 地址

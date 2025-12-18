@@ -154,6 +154,7 @@ mtu = 1400
 log_level = "info"
 obfuscation = false
 heartbeat_interval = 30
+# tun_device = "ruhop0"            # Optional: TUN device name (ignored on macOS)
 
 [server]
 listen = "0.0.0.0"                # IP address to bind

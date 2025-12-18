@@ -126,6 +126,12 @@ obfuscation = false
 # Heartbeat interval in seconds (default: 30)
 heartbeat_interval = 30
 
+# TUN device name (optional)
+# On Linux/Windows: defaults to "ruhop" if not specified
+# On macOS: ignored (system auto-assigns utun device names)
+# Set this to run multiple ruhop instances on the same machine
+# tun_device = "ruhop0"
+
 # Server configuration (used when running as server)
 [server]
 # IP address to listen on (binds to all ports in port_range)
@@ -232,6 +238,15 @@ pub struct CommonConfig {
     /// Path for the control socket (for `ruhop status` command)
     #[serde(default)]
     pub control_socket: Option<String>,
+
+    /// TUN device name (optional)
+    ///
+    /// On Linux/Windows: defaults to "ruhop" if not specified.
+    /// On macOS: ignored (system auto-assigns utun device names).
+    ///
+    /// Set this to run multiple ruhop instances on the same machine.
+    #[serde(default)]
+    pub tun_device: Option<String>,
 }
 
 impl Default for CommonConfig {
@@ -243,6 +258,7 @@ impl Default for CommonConfig {
             obfuscation: false,
             heartbeat_interval: default_heartbeat_interval(),
             control_socket: None,
+            tun_device: None,
         }
     }
 }

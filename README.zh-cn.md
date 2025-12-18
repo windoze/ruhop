@@ -88,6 +88,7 @@ mtu = 1400                        # MTU 大小
 log_level = "info"                # 日志级别
 obfuscation = false               # 启用数据包混淆
 heartbeat_interval = 30           # 心跳间隔（秒）
+# tun_device = "ruhop0"           # TUN 设备名称（macOS 上忽略）
 
 [server]
 listen = "0.0.0.0"                # 监听 IP 地址
