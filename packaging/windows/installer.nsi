@@ -3,9 +3,15 @@
 !include "MUI2.nsh"
 !include "FileFunc.nsh"
 
+; cargo-packager provided variables
+!define LICENSE "{{license}}"
+!define MAINBINARYSRCPATH "{{main_binary_path}}"
+!define WINTUNDLL "C:\Users\xuchen\source\repos\ruhop\packaging\windows\wintun.dll"
+!define CONFIGEXAMPLE "C:\Users\xuchen\source\repos\ruhop\packaging\windows\ruhop.toml.example"
+
 ; General
 Name "Ruhop VPN"
-OutFile "ruhop-installer.exe"
+OutFile "nsis-output.exe"
 InstallDir "$PROGRAMFILES64\Ruhop"
 InstallDirRegKey HKLM "Software\Ruhop" "InstallDir"
 RequestExecutionLevel admin
@@ -26,7 +32,9 @@ VIAddVersionKey "LegalCopyright" "Copyright (c) 2024"
 
 ; Pages
 !insertmacro MUI_PAGE_WELCOME
-!insertmacro MUI_PAGE_LICENSE "..\..\LICENSE"
+!if "${LICENSE}" != ""
+  !insertmacro MUI_PAGE_LICENSE "${LICENSE}"
+!endif
 !insertmacro MUI_PAGE_DIRECTORY
 !insertmacro MUI_PAGE_INSTFILES
 !insertmacro MUI_PAGE_FINISH
@@ -42,11 +50,11 @@ Section "Install"
     SetOutPath "$INSTDIR"
 
     ; Install main executable
-    File "..\..\target\release\ruhop.exe"
+    File "${MAINBINARYSRCPATH}"
 
     ; Install wintun.dll to System32 for service compatibility
     SetOutPath "$SYSDIR"
-    File "wintun.dll"
+    File "${WINTUNDLL}"
 
     ; Create config directory
     CreateDirectory "$APPDATA\Ruhop"
@@ -54,7 +62,7 @@ Section "Install"
     ; Install example config if no config exists
     SetOutPath "$APPDATA\Ruhop"
     IfFileExists "$APPDATA\Ruhop\ruhop.toml" +2 0
-    File /oname=$APPDATA\Ruhop\ruhop.toml.example "ruhop.toml.example"
+    File /oname=$APPDATA\Ruhop\ruhop.toml.example "${CONFIGEXAMPLE}"
 
     ; Create Start Menu shortcuts
     CreateDirectory "$SMPROGRAMS\Ruhop"
