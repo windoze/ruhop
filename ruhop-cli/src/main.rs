@@ -23,11 +23,11 @@ mod share;
 #[command(author, version, about, long_about = None)]
 struct Cli {
     /// Path to configuration file
-    #[arg(short, long, default_value = "ruhop.toml")]
+    #[arg(short, long, global = true, default_value = "ruhop.toml")]
     config: PathBuf,
 
     /// Log level (error, warn, info, debug, trace)
-    #[arg(short, long, default_value = "info")]
+    #[arg(short, long, global = true, default_value = "info")]
     log_level: String,
 
     #[command(subcommand)]
