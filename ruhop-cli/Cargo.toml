@@ -41,7 +41,7 @@ hop-tun = { path = "../hop-tun" }
 
 [package.metadata.packager]
 product-name = "Ruhop VPN"
-identifier = "com.ruhop.vpn"
+identifier = "codes.unwritten.ruhop"
 icons = ["../assets/icon.png"]
 resources = ["packaging/windows/wintun.dll", "packaging/windows/ruhop.toml.example"]
 license-file = "../LICENSE"
