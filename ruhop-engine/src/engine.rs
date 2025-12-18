@@ -917,7 +917,7 @@ impl VpnEngine {
         let route_manager = RouteManager::new().await?;
         let server_ips = client_config.resolve_server_ips()?;
         let original_gateway = route_manager.get_default_gateway().await?;
-        self.setup_client_routes(&route_manager, client_config, &tun_name, server_tunnel_ip, &server_ips, original_gateway)
+        self.setup_client_routes(&route_manager, client_config, &tun_name, tunnel_ipv4, mask, server_tunnel_ip, &server_ips, original_gateway)
             .await?;
 
         self.set_state(VpnState::Connected).await;
@@ -966,21 +966,47 @@ impl VpnEngine {
         run_disconnect_script(client_config.on_disconnect.as_deref(), &script_params).await;
 
         // Cleanup routes
-        self.cleanup_client_routes(&route_manager, client_config, &tun_name, server_tunnel_ip, &server_ips, original_gateway)
+        self.cleanup_client_routes(&route_manager, client_config, &tun_name, tunnel_ipv4, mask, server_tunnel_ip, &server_ips, original_gateway)
             .await;
 
         result
     }
 
+    #[allow(clippy::too_many_arguments)]
     async fn setup_client_routes(
         &self,
         route_manager: &RouteManager,
         client_config: &ClientConfig,
         tun_name: &str,
+        tunnel_ip: Ipv4Addr,
+        prefix_len: u8,
         tun_gateway: Ipv4Addr,
         server_ips: &[IpAddr],
         original_gateway: Option<IpAddr>,
     ) -> Result<()> {
+        // Always add interface route for the tunnel subnet
+        // This allows communication with the server's tunnel IP regardless of route_all_traffic
+        let tunnel_net = ipnet::Ipv4Net::new(tunnel_ip, prefix_len)
+            .map_err(|e| Error::Config(format!("Invalid tunnel network: {}", e)))?
+            .trunc(); // Get the network address
+        let tunnel_route = Route::interface_route(
+            ipnet::IpNet::V4(tunnel_net),
+            tun_name,
+        );
+        if let Err(e) = route_manager.add(&tunnel_route).await {
+            self.log(
+                LogLevel::Warning,
+                format!("Failed to add tunnel subnet route: {}", e),
+            )
+            .await;
+        } else {
+            self.log(
+                LogLevel::Info,
+                format!("Added tunnel subnet route: {}", tunnel_net),
+            )
+            .await;
+        }
+
         if client_config.route_all_traffic {
             // First, add routes for server IPs to use the original gateway
             // This prevents routing loops where VPN traffic gets sent through the VPN
@@ -1043,15 +1069,28 @@ impl VpnEngine {
         Ok(())
     }
 
+    #[allow(clippy::too_many_arguments)]
     async fn cleanup_client_routes(
         &self,
         route_manager: &RouteManager,
         client_config: &ClientConfig,
         tun_name: &str,
+        tunnel_ip: Ipv4Addr,
+        prefix_len: u8,
         tun_gateway: Ipv4Addr,
         server_ips: &[IpAddr],
         original_gateway: Option<IpAddr>,
     ) {
+        // Remove tunnel subnet route (always added)
+        if let Ok(tunnel_net) = ipnet::Ipv4Net::new(tunnel_ip, prefix_len) {
+            let tunnel_net = tunnel_net.trunc();
+            let tunnel_route = Route::interface_route(
+                ipnet::IpNet::V4(tunnel_net),
+                tun_name,
+            );
+            let _ = route_manager.delete(&tunnel_route).await;
+        }
+
         if client_config.route_all_traffic {
             // Remove the catch-all routes
             if let Ok(route1) = Route::ipv4(Ipv4Addr::new(0, 0, 0, 0), 1, Some(tun_gateway)) {
