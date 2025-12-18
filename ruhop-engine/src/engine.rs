@@ -984,15 +984,31 @@ impl VpnEngine {
         server_ips: &[IpAddr],
         original_gateway: Option<IpAddr>,
     ) -> Result<()> {
-        // Always add interface route for the tunnel subnet
-        // This allows communication with the server's tunnel IP regardless of route_all_traffic
+        // Add routes for the tunnel subnet
+        // On Linux with point-to-point TUN interfaces, we need:
+        // 1. A host route to the peer (gateway) IP via the interface (created by tun-rs)
+        // 2. A subnet route via the peer IP as gateway
+        //
+        // This results in routing like:
+        //   10.1.1.4 dev ruhop proto kernel scope link src 10.1.1.3  (from tun-rs)
+        //   10.1.1.0/24 via 10.1.1.4 dev ruhop                       (added here)
+        //
+        // On other platforms, we use a simple interface route.
         let tunnel_net = ipnet::Ipv4Net::new(tunnel_ip, prefix_len)
             .map_err(|e| Error::Config(format!("Invalid tunnel network: {}", e)))?
             .trunc(); // Get the network address
-        let tunnel_route = Route::interface_route(
-            ipnet::IpNet::V4(tunnel_net),
-            tun_name,
-        );
+
+        #[cfg(target_os = "linux")]
+        let tunnel_route = {
+            // On Linux, create a route via the gateway (peer IP) with interface specified
+            Route::ipv4(tunnel_net.addr(), tunnel_net.prefix_len(), Some(tun_gateway))
+                .map_err(|e| Error::Config(format!("Invalid tunnel route: {}", e)))?
+                .with_interface(tun_name)
+        };
+
+        #[cfg(not(target_os = "linux"))]
+        let tunnel_route = Route::interface_route(ipnet::IpNet::V4(tunnel_net), tun_name);
+
         if let Err(e) = route_manager.add(&tunnel_route).await {
             self.log(
                 LogLevel::Warning,
@@ -1086,11 +1102,25 @@ impl VpnEngine {
         // Remove tunnel subnet route (always added)
         if let Ok(tunnel_net) = ipnet::Ipv4Net::new(tunnel_ip, prefix_len) {
             let tunnel_net = tunnel_net.trunc();
-            let tunnel_route = Route::interface_route(
-                ipnet::IpNet::V4(tunnel_net),
-                tun_name,
-            );
-            let _ = route_manager.delete(&tunnel_route).await;
+
+            #[cfg(target_os = "linux")]
+            {
+                // On Linux, we added a route via gateway
+                if let Ok(tunnel_route) =
+                    Route::ipv4(tunnel_net.addr(), tunnel_net.prefix_len(), Some(tun_gateway))
+                {
+                    let _ = route_manager
+                        .delete(&tunnel_route.with_interface(tun_name))
+                        .await;
+                }
+            }
+
+            #[cfg(not(target_os = "linux"))]
+            {
+                let tunnel_route =
+                    Route::interface_route(ipnet::IpNet::V4(tunnel_net), tun_name);
+                let _ = route_manager.delete(&tunnel_route).await;
+            }
         }
 
         // Always remove server-specific routes (they're always added now)
