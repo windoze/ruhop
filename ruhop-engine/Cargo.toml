@@ -15,6 +15,13 @@ hop-tun = { path = "../hop-tun" }
 # Async runtime
 tokio = { version = "1", features = ["net", "io-util", "sync", "macros", "rt-multi-thread", "time", "signal", "process"] }
 
+# Low-level socket operations for IP_PKTINFO/IP_RECVDSTADDR
+socket2 = { version = "0.5", features = ["all"] }
+libc = "0.2"
+
+[target.'cfg(unix)'.dependencies]
+nix = { version = "0.30", features = ["net", "uio"] }
+
 # Configuration
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"

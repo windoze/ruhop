@@ -41,6 +41,7 @@ pub mod engine;
 pub mod error;
 pub mod event;
 pub mod script;
+pub mod socket;
 
 pub use config::{ClientConfig, Config, DnsConfig, ServerAddress, ServerConfig};
 pub use control::{ControlClient, ControlRequest, ControlResponse, StatusInfo, ClientInfo, ClientsInfo, SharedStats, SharedStatsRef, DEFAULT_SOCKET_PATH};

@@ -12,6 +12,8 @@ use tokio::net::UdpSocket;
 use tokio::sync::{broadcast, Mutex, RwLock};
 use tokio::time::interval;
 
+use crate::socket::TrackedUdpSocket;
+
 use hop_protocol::{
     AssignedAddresses, Cipher, IpAddress, Ipv4Pool, Packet, Session, SessionId,
     SessionState,
@@ -50,6 +52,9 @@ struct ClientSession {
     /// Index of the socket that most recently received a packet from this client.
     /// Server must reply from this socket for NAT traversal to work.
     last_recv_socket_idx: usize,
+    /// Local address that received the most recent packet from this client.
+    /// On multi-homed servers, responses must be sent from this address for NAT traversal.
+    last_recv_local_addr: SocketAddr,
 }
 
 /// Internal engine state
@@ -313,11 +318,12 @@ impl VpnEngine {
         self.log(LogLevel::Info, format!("Created TUN device: {}", tun_name)).await;
 
         // Bind UDP sockets for all ports in the port range
+        // Use TrackedUdpSocket for proper NAT traversal on multi-homed servers
         let listen_ip = server_config.listen;
         let mut sockets = Vec::new();
         for port in server_config.port_range[0]..=server_config.port_range[1] {
             let addr = SocketAddr::new(listen_ip, port);
-            let socket = UdpSocket::bind(addr)
+            let socket = TrackedUdpSocket::bind(addr)
                 .await
                 .map_err(|e| Error::Connection(format!("failed to bind UDP socket on {}: {}", addr, e)))?;
             sockets.push(Arc::new(socket));
@@ -473,7 +479,7 @@ impl VpnEngine {
     async fn run_server_loop(
         &self,
         tun: Arc<TunDevice>,
-        sockets: Vec<Arc<UdpSocket>>,
+        sockets: Vec<Arc<TrackedUdpSocket>>,
         cipher: Cipher,
         pool: Arc<Mutex<Ipv4Pool>>,
         server_config: ServerConfig,
@@ -525,13 +531,15 @@ impl VpnEngine {
                                         buf[..n].to_vec(),
                                     );
 
-                                    // Encrypt and send via last received socket for NAT traversal
+                                    // Encrypt and send via last received socket from the same local address
+                                    // This ensures NAT traversal works on multi-homed servers
                                     match cipher_encrypt.encrypt(&packet, 0) {
                                         Ok(encrypted) => {
                                             // Use the socket that last received from this client
+                                            // and send from the same local address for NAT traversal
                                             let socket = &sockets_write[client.last_recv_socket_idx];
                                             let _ = socket
-                                                .send_to(&encrypted, client.peer_addr)
+                                                .send_to_from(&encrypted, client.peer_addr, client.last_recv_local_addr)
                                                 .await;
 
                                             // Update stats (lock-free)
@@ -574,8 +582,12 @@ impl VpnEngine {
             let task = tokio::spawn(async move {
                 let mut buf = vec![0u8; 2000];
                 loop {
-                    match socket_read.recv_from(&mut buf).await {
-                        Ok((n, peer_addr)) => {
+                    match socket_read.recv_from_tracked(&mut buf).await {
+                        Ok(recv_result) => {
+                            let n = recv_result.len;
+                            let peer_addr = recv_result.peer_addr;
+                            let local_addr = recv_result.local_addr;
+
                             // Update stats (lock-free)
                             stats_udp.record_rx(n);
 
@@ -601,6 +613,7 @@ impl VpnEngine {
                                     &server_config_clone,
                                     sid,
                                     peer_addr,
+                                    local_addr,
                                     socket_idx,
                                     &event_handler_udp,
                                     &stats_udp,
@@ -617,6 +630,7 @@ impl VpnEngine {
                                     &server_config_clone,
                                     sid,
                                     peer_addr,
+                                    local_addr,
                                     socket_idx,
                                     &event_handler_udp,
                                     &dns_servers_clone,
@@ -626,10 +640,11 @@ impl VpnEngine {
                                 // Handshake confirmation from client
                                 let mut sessions = sessions_write.write().await;
                                 if let Some(client) = sessions.get_mut(&sid) {
-                                    // Update peer address and socket index for NAT traversal
+                                    // Update peer address, local address, and socket index for NAT traversal
                                     // (client may send from different source addresses in multi-homed setup)
                                     client.peer_addr = peer_addr;
                                     client.last_recv_socket_idx = socket_idx;
+                                    client.last_recv_local_addr = local_addr;
                                     client.last_activity = Instant::now();
                                     if client.session.state == SessionState::Handshake {
                                         if let Err(e) = client.session.complete_handshake_v2(
@@ -650,6 +665,7 @@ impl VpnEngine {
                                     &cipher_decrypt,
                                     sid,
                                     peer_addr,
+                                    local_addr,
                                     &event_handler_udp,
                                     &stats_udp,
                                 )
@@ -658,10 +674,11 @@ impl VpnEngine {
                                 // Data packet - update peer address and socket for NAT traversal
                                 let mut sessions = sessions_write.write().await;
                                 if let Some(client) = sessions.get_mut(&sid) {
-                                    // Update peer address and socket index for NAT traversal
+                                    // Update peer address, local address, and socket index for NAT traversal
                                     // (client may send from different source addresses in multi-homed setup)
                                     client.peer_addr = peer_addr;
                                     client.last_recv_socket_idx = socket_idx;
+                                    client.last_recv_local_addr = local_addr;
                                     client.last_activity = Instant::now();
                                     if client.session.state == SessionState::Working {
                                         // Write to TUN
@@ -1264,6 +1281,7 @@ async fn handle_server_knock_multi(
     server_config: &ServerConfig,
     sid: u32,
     peer_addr: SocketAddr,
+    local_addr: SocketAddr,
     socket_idx: usize,
     _event_handler: &Arc<dyn EventHandler>,
     shared_stats: &SharedStatsRef,
@@ -1272,10 +1290,11 @@ async fn handle_server_knock_multi(
 
     // Check if session already exists
     if let Some(client) = sessions_lock.get_mut(&sid) {
-        // Update peer address and socket index for NAT traversal
+        // Update peer address, local address, and socket index for NAT traversal
         // (client may send from different source addresses in multi-homed setup)
         client.peer_addr = peer_addr;
         client.last_recv_socket_idx = socket_idx;
+        client.last_recv_local_addr = local_addr;
         client.last_activity = Instant::now();
         return;
     }
@@ -1307,6 +1326,7 @@ async fn handle_server_knock_multi(
             last_activity: Instant::now(),
             address_pair,
             last_recv_socket_idx: socket_idx,
+            last_recv_local_addr: local_addr,
         },
     );
 
@@ -1331,11 +1351,12 @@ async fn handle_server_handshake(
     sessions: &RwLock<HashMap<u32, ClientSession>>,
     ip_to_session: &RwLock<HashMap<Ipv4Addr, u32>>,
     pool: &Mutex<Ipv4Pool>,
-    socket: &UdpSocket,
+    socket: &TrackedUdpSocket,
     cipher: &Cipher,
     server_config: &ServerConfig,
     sid: u32,
     peer_addr: SocketAddr,
+    local_addr: SocketAddr,
     socket_idx: usize,
     event_handler: &Arc<dyn EventHandler>,
     dns_servers: &[IpAddress],
@@ -1344,10 +1365,11 @@ async fn handle_server_handshake(
 
     // Get or create session
     let client = if let Some(c) = sessions_lock.get_mut(&sid) {
-        // Update peer address and socket index for NAT traversal
+        // Update peer address, local address, and socket index for NAT traversal
         // (client may send from different source addresses in multi-homed setup)
         c.peer_addr = peer_addr;
         c.last_recv_socket_idx = socket_idx;
+        c.last_recv_local_addr = local_addr;
         c
     } else {
         // Session doesn't exist - might have been a knock we missed
@@ -1376,6 +1398,7 @@ async fn handle_server_handshake(
                 last_activity: Instant::now(),
                 address_pair,
                 last_recv_socket_idx: socket_idx,
+                last_recv_local_addr: local_addr,
             },
         );
 
@@ -1403,7 +1426,8 @@ async fn handle_server_handshake(
 
     match cipher.encrypt(&response, 0) {
         Ok(encrypted) => {
-            if let Err(e) = socket.send_to(&encrypted, peer_addr).await {
+            // Send from the same local address for proper NAT traversal
+            if let Err(e) = socket.send_to_from(&encrypted, peer_addr, local_addr).await {
                 log::error!("Failed to send handshake response: {}", e);
             } else {
                 log::info!(
@@ -1436,10 +1460,11 @@ async fn handle_server_finish(
     sessions: &RwLock<HashMap<u32, ClientSession>>,
     ip_to_session: &RwLock<HashMap<Ipv4Addr, u32>>,
     pool: &Mutex<Ipv4Pool>,
-    socket: &UdpSocket,
+    socket: &TrackedUdpSocket,
     cipher: &Cipher,
     sid: u32,
     peer_addr: SocketAddr,
+    local_addr: SocketAddr,
     event_handler: &Arc<dyn EventHandler>,
     shared_stats: &SharedStatsRef,
 ) {
@@ -1449,10 +1474,10 @@ async fn handle_server_finish(
         // Update active sessions count
         shared_stats.set_active_sessions(sessions_lock.len());
 
-        // Send FIN ACK
+        // Send FIN ACK from the same local address for NAT traversal
         let fin_ack = Packet::finish_ack(sid);
         if let Ok(encrypted) = cipher.encrypt(&fin_ack, 0) {
-            let _ = socket.send_to(&encrypted, peer_addr).await;
+            let _ = socket.send_to_from(&encrypted, peer_addr, local_addr).await;
         }
 
         // Remove IP mapping
