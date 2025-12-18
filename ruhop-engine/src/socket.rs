@@ -144,46 +144,57 @@ impl TrackedUdpSocket {
 
         let fd = self.socket.as_raw_fd();
 
-        // Wait for socket to be readable
-        self.socket.readable().await?;
+        loop {
+            // Wait for socket to be readable
+            self.socket.readable().await?;
 
-        // Prepare buffers
-        let mut iov = [IoSliceMut::new(buf)];
-        let mut cmsg_buf = nix::cmsg_space!(libc::in_pktinfo);
+            // Prepare buffers
+            let mut iov = [IoSliceMut::new(buf)];
+            let mut cmsg_buf = nix::cmsg_space!(libc::in_pktinfo);
 
-        // Use try_io to perform the blocking recvmsg in a non-blocking context
-        #[allow(unreachable_patterns)] // EAGAIN == EWOULDBLOCK on some platforms
-        let result = self.socket.try_io(tokio::io::Interest::READABLE, || {
-            match recvmsg::<SockaddrStorage>(fd, &mut iov, Some(&mut cmsg_buf), MsgFlags::empty()) {
-                Ok(msg) => Ok(msg),
-                Err(nix::errno::Errno::EAGAIN) | Err(nix::errno::Errno::EWOULDBLOCK) => {
-                    Err(io::Error::from(io::ErrorKind::WouldBlock))
+            // Use try_io to perform the blocking recvmsg in a non-blocking context
+            #[allow(unreachable_patterns)] // EAGAIN == EWOULDBLOCK on some platforms
+            let result = self.socket.try_io(tokio::io::Interest::READABLE, || {
+                match recvmsg::<SockaddrStorage>(fd, &mut iov, Some(&mut cmsg_buf), MsgFlags::empty()) {
+                    Ok(msg) => Ok(msg),
+                    Err(nix::errno::Errno::EAGAIN) | Err(nix::errno::Errno::EWOULDBLOCK) => {
+                        Err(io::Error::from(io::ErrorKind::WouldBlock))
+                    }
+                    Err(e) => Err(io::Error::other(e)),
                 }
-                Err(e) => Err(io::Error::other(e)),
-            }
-        })?;
+            });
 
-        let peer_addr = result
-            .address
-            .and_then(|sa: SockaddrStorage| {
-                let sin: Option<&SockaddrIn> = sa.as_sockaddr_in();
-                sin.map(|s| SocketAddr::V4(SocketAddrV4::new(s.ip(), s.port())))
-            })
-            .ok_or_else(|| io::Error::other("no peer address"))?;
+            match result {
+                Ok(msg) => {
+                    let peer_addr = msg
+                        .address
+                        .and_then(|sa: SockaddrStorage| {
+                            let sin: Option<&SockaddrIn> = sa.as_sockaddr_in();
+                            sin.map(|s| SocketAddr::V4(SocketAddrV4::new(s.ip(), s.port())))
+                        })
+                        .ok_or_else(|| io::Error::other("no peer address"))?;
 
-        // Extract local address from control messages
-        let mut local_ip = self.bound_addr;
-        for cmsg in result.cmsgs()? {
-            if let ControlMessageOwned::Ipv4PacketInfo(pktinfo) = cmsg {
-                local_ip = IpAddr::V4(Ipv4Addr::from(u32::from_be(pktinfo.ipi_addr.s_addr)));
+                    // Extract local address from control messages
+                    let mut local_ip = self.bound_addr;
+                    for cmsg in msg.cmsgs()? {
+                        if let ControlMessageOwned::Ipv4PacketInfo(pktinfo) = cmsg {
+                            local_ip = IpAddr::V4(Ipv4Addr::from(u32::from_be(pktinfo.ipi_addr.s_addr)));
+                        }
+                    }
+
+                    return Ok(RecvResult {
+                        len: msg.bytes,
+                        peer_addr,
+                        local_addr: SocketAddr::new(local_ip, self.bound_port),
+                    });
+                }
+                Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {
+                    // Spurious wakeup, retry
+                    continue;
+                }
+                Err(e) => return Err(e),
             }
         }
-
-        Ok(RecvResult {
-            len: result.bytes,
-            peer_addr,
-            local_addr: SocketAddr::new(local_ip, self.bound_port),
-        })
     }
 
     /// Receive with platform-specific packet info to get the local destination address.
@@ -194,46 +205,57 @@ impl TrackedUdpSocket {
 
         let fd = self.socket.as_raw_fd();
 
-        // Wait for socket to be readable
-        self.socket.readable().await?;
+        loop {
+            // Wait for socket to be readable
+            self.socket.readable().await?;
 
-        // Prepare buffers
-        let mut iov = [IoSliceMut::new(buf)];
-        let mut cmsg_buf = nix::cmsg_space!(libc::in_addr);
+            // Prepare buffers
+            let mut iov = [IoSliceMut::new(buf)];
+            let mut cmsg_buf = nix::cmsg_space!(libc::in_addr);
 
-        // Use try_io to perform the blocking recvmsg in a non-blocking context
-        #[allow(unreachable_patterns)] // EAGAIN == EWOULDBLOCK on some platforms
-        let result = self.socket.try_io(tokio::io::Interest::READABLE, || {
-            match recvmsg::<SockaddrStorage>(fd, &mut iov, Some(&mut cmsg_buf), MsgFlags::empty()) {
-                Ok(msg) => Ok(msg),
-                Err(nix::errno::Errno::EAGAIN) | Err(nix::errno::Errno::EWOULDBLOCK) => {
-                    Err(io::Error::from(io::ErrorKind::WouldBlock))
+            // Use try_io to perform the blocking recvmsg in a non-blocking context
+            #[allow(unreachable_patterns)] // EAGAIN == EWOULDBLOCK on some platforms
+            let result = self.socket.try_io(tokio::io::Interest::READABLE, || {
+                match recvmsg::<SockaddrStorage>(fd, &mut iov, Some(&mut cmsg_buf), MsgFlags::empty()) {
+                    Ok(msg) => Ok(msg),
+                    Err(nix::errno::Errno::EAGAIN) | Err(nix::errno::Errno::EWOULDBLOCK) => {
+                        Err(io::Error::from(io::ErrorKind::WouldBlock))
+                    }
+                    Err(e) => Err(io::Error::other(e)),
                 }
-                Err(e) => Err(io::Error::other(e)),
-            }
-        })?;
+            });
 
-        let peer_addr = result
-            .address
-            .and_then(|sa: SockaddrStorage| {
-                let sin: Option<&SockaddrIn> = sa.as_sockaddr_in();
-                sin.map(|s| SocketAddr::V4(SocketAddrV4::new(s.ip(), s.port())))
-            })
-            .ok_or_else(|| io::Error::other("no peer address"))?;
+            match result {
+                Ok(msg) => {
+                    let peer_addr = msg
+                        .address
+                        .and_then(|sa: SockaddrStorage| {
+                            let sin: Option<&SockaddrIn> = sa.as_sockaddr_in();
+                            sin.map(|s| SocketAddr::V4(SocketAddrV4::new(s.ip(), s.port())))
+                        })
+                        .ok_or_else(|| io::Error::other("no peer address"))?;
 
-        // Extract local address from control messages
-        let mut local_ip = self.bound_addr;
-        for cmsg in result.cmsgs()? {
-            if let ControlMessageOwned::Ipv4RecvDstAddr(addr) = cmsg {
-                local_ip = IpAddr::V4(Ipv4Addr::from(u32::from_be(addr.s_addr)));
+                    // Extract local address from control messages
+                    let mut local_ip = self.bound_addr;
+                    for cmsg in msg.cmsgs()? {
+                        if let ControlMessageOwned::Ipv4RecvDstAddr(addr) = cmsg {
+                            local_ip = IpAddr::V4(Ipv4Addr::from(u32::from_be(addr.s_addr)));
+                        }
+                    }
+
+                    return Ok(RecvResult {
+                        len: msg.bytes,
+                        peer_addr,
+                        local_addr: SocketAddr::new(local_ip, self.bound_port),
+                    });
+                }
+                Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {
+                    // Spurious wakeup, retry
+                    continue;
+                }
+                Err(e) => return Err(e),
             }
         }
-
-        Ok(RecvResult {
-            len: result.bytes,
-            peer_addr,
-            local_addr: SocketAddr::new(local_ip, self.bound_port),
-        })
     }
 
     /// Receive with platform-specific packet info (fallback for other platforms).
@@ -280,19 +302,15 @@ impl TrackedUdpSocket {
 
         let fd = self.socket.as_raw_fd();
 
-        // Wait for socket to be writable
-        self.socket.writable().await?;
-
-        let iov = [IoSlice::new(buf)];
         let dst = SockaddrIn::from(match target {
             SocketAddr::V4(v4) => v4,
-            _ => return Err(io::Error::new(io::ErrorKind::Other, "IPv6 not supported")),
+            _ => return Err(io::Error::other("IPv6 not supported")),
         });
 
         // Create pktinfo structure
         let local_ip = match local_addr.ip() {
             IpAddr::V4(ip) => ip,
-            _ => return Err(io::Error::new(io::ErrorKind::Other, "IPv6 not supported")),
+            _ => return Err(io::Error::other("IPv6 not supported")),
         };
 
         let pktinfo = libc::in_pktinfo {
@@ -303,18 +321,33 @@ impl TrackedUdpSocket {
             ipi_addr: libc::in_addr { s_addr: 0 },
         };
 
-        let cmsg = [ControlMessage::Ipv4PacketInfo(&pktinfo)];
+        loop {
+            // Wait for socket to be writable
+            self.socket.writable().await?;
 
-        #[allow(unreachable_patterns)] // EAGAIN == EWOULDBLOCK on some platforms
-        self.socket.try_io(tokio::io::Interest::WRITABLE, || {
-            match sendmsg(fd, &iov, &cmsg, MsgFlags::empty(), Some(&dst)) {
-                Ok(n) => Ok(n),
-                Err(nix::errno::Errno::EAGAIN) | Err(nix::errno::Errno::EWOULDBLOCK) => {
-                    Err(io::Error::from(io::ErrorKind::WouldBlock))
+            let iov = [IoSlice::new(buf)];
+            let cmsg = [ControlMessage::Ipv4PacketInfo(&pktinfo)];
+
+            #[allow(unreachable_patterns)] // EAGAIN == EWOULDBLOCK on some platforms
+            let result = self.socket.try_io(tokio::io::Interest::WRITABLE, || {
+                match sendmsg(fd, &iov, &cmsg, MsgFlags::empty(), Some(&dst)) {
+                    Ok(n) => Ok(n),
+                    Err(nix::errno::Errno::EAGAIN) | Err(nix::errno::Errno::EWOULDBLOCK) => {
+                        Err(io::Error::from(io::ErrorKind::WouldBlock))
+                    }
+                    Err(e) => Err(io::Error::other(e)),
                 }
-                Err(e) => Err(io::Error::other(e)),
+            });
+
+            match result {
+                Ok(n) => return Ok(n),
+                Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {
+                    // Spurious wakeup, retry
+                    continue;
+                }
+                Err(e) => return Err(e),
             }
-        })
+        }
     }
 
     /// Send with platform-specific packet info to set the source address.
