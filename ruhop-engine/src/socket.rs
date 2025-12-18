@@ -60,8 +60,7 @@ impl TrackedUdpSocket {
         {
             // IP_PKTINFO for IPv4, IPV6_RECVPKTINFO for IPv6
             if addr.is_ipv4() {
-                socket.set_header_included_v4(false)?;
-                // Set IP_PKTINFO using libc
+                // Set IP_PKTINFO to receive destination address in ancillary data
                 unsafe {
                     let optval: libc::c_int = 1;
                     let ret = libc::setsockopt(
