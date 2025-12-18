@@ -277,10 +277,9 @@ on_connect = "/usr/local/bin/vpn-up.sh"
 on_disconnect = "/usr/local/bin/vpn-down.sh"
 ```
 
-Scripts receive arguments: `<local_ip> <peer_ip> <prefix_len> <tun_device> <dns_servers>`
+Scripts receive arguments: `<local_ip> <prefix_len> <tun_device> <dns_servers>`
 
 - `local_ip`: Client's tunnel IP address
-- `peer_ip`: Server's tunnel IP address
 - `prefix_len`: Network prefix length (e.g., 24)
 - `tun_device`: TUN device name (e.g., utun5, tun0)
 - `dns_servers`: Comma-separated DNS server IPs pushed by server (may be empty)
@@ -290,10 +289,9 @@ Example `vpn-up.sh`:
 ```bash
 #!/bin/bash
 LOCAL_IP=$1
-PEER_IP=$2
-PREFIX=$3
-TUN_DEV=$4
-DNS_SERVERS=$5
+PREFIX=$2
+TUN_DEV=$3
+DNS_SERVERS=$4
 
 echo "VPN connected: $LOCAL_IP/$PREFIX via $TUN_DEV"
 echo "DNS servers from server: $DNS_SERVERS"
@@ -306,8 +304,8 @@ if [ -n "$DNS_SERVERS" ]; then
     done | sudo tee /etc/resolv.conf
 fi
 
-# Custom routes
-ip route add 192.168.100.0/24 via $PEER_IP dev $TUN_DEV
+# Custom routes via TUN device
+ip route add 192.168.100.0/24 dev $TUN_DEV
 ```
 
 ## Requirements

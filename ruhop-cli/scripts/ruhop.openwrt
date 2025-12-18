@@ -11,7 +11,7 @@ START=99
 STOP=10
 USE_PROCD=1
 
-PROG=/usr/bin/ruhop-cli
+PROG=/usr/bin/ruhop
 CONF=/etc/ruhop/ruhop.toml
 
 start_service() {

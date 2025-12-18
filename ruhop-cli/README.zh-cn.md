@@ -277,10 +277,9 @@ on_connect = "/usr/local/bin/vpn-up.sh"
 on_disconnect = "/usr/local/bin/vpn-down.sh"
 ```
 
-脚本接收参数：`<本地IP> <对端IP> <前缀长度> <TUN设备> <DNS服务器>`
+脚本接收参数：`<本地IP> <前缀长度> <TUN设备> <DNS服务器>`
 
 - `本地IP`：客户端的隧道 IP 地址
-- `对端IP`：服务器的隧道 IP 地址
 - `前缀长度`：网络前缀长度（例如 24）
 - `TUN设备`：TUN 设备名称（例如 utun5、tun0）
 - `DNS服务器`：服务器推送的 DNS 服务器 IP，逗号分隔（可能为空）
@@ -290,10 +289,9 @@ on_disconnect = "/usr/local/bin/vpn-down.sh"
 ```bash
 #!/bin/bash
 LOCAL_IP=$1
-PEER_IP=$2
-PREFIX=$3
-TUN_DEV=$4
-DNS_SERVERS=$5
+PREFIX=$2
+TUN_DEV=$3
+DNS_SERVERS=$4
 
 echo "VPN 已连接: $LOCAL_IP/$PREFIX 通过 $TUN_DEV"
 echo "服务器推送的 DNS: $DNS_SERVERS"
@@ -306,8 +304,8 @@ if [ -n "$DNS_SERVERS" ]; then
     done | sudo tee /etc/resolv.conf
 fi
 
-# 自定义路由
-ip route add 192.168.100.0/24 via $PEER_IP dev $TUN_DEV
+# 通过 TUN 设备添加自定义路由
+ip route add 192.168.100.0/24 dev $TUN_DEV
 ```
 
 ## 要求

@@ -194,11 +194,11 @@ max_reconnect_attempts = 0
 reconnect_delay = 5
 
 # Script to run when VPN connects (optional)
-# Arguments: <local_ip> <peer_ip> <netmask> <tun_device>
+# Arguments: <local_ip> <netmask> <tun_device> <dns_servers>
 # on_connect = "/path/to/connect-script.sh"
 
 # Script to run when VPN disconnects (optional)
-# Arguments: <local_ip> <peer_ip> <netmask> <tun_device>
+# Arguments: <local_ip> <netmask> <tun_device> <dns_servers>
 # on_disconnect = "/path/to/disconnect-script.sh"
 "#
         .to_string()
@@ -521,9 +521,9 @@ pub struct ClientConfig {
     ///
     /// The script receives the following arguments:
     /// 1. Local tunnel IP address
-    /// 2. Peer (server) tunnel IP address
-    /// 3. Netmask (prefix length)
-    /// 4. TUN device name
+    /// 2. Netmask (prefix length)
+    /// 3. TUN device name
+    /// 4. DNS servers (comma-separated, may be empty)
     #[serde(default)]
     pub on_connect: Option<String>,
 
@@ -531,9 +531,9 @@ pub struct ClientConfig {
     ///
     /// The script receives the following arguments:
     /// 1. Local tunnel IP address (may be empty if not connected)
-    /// 2. Peer (server) tunnel IP address (may be empty if not connected)
-    /// 3. Netmask (prefix length, may be 0 if not connected)
-    /// 4. TUN device name (may be empty if not connected)
+    /// 2. Netmask (prefix length, may be 0 if not connected)
+    /// 3. TUN device name (may be empty if not connected)
+    /// 4. DNS servers (comma-separated, may be empty)
     #[serde(default)]
     pub on_disconnect: Option<String>,
 }

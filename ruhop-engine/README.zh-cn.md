@@ -268,11 +268,10 @@ pub struct VpnStats {
 客户端支持 `on_connect` 和 `on_disconnect` 脚本，接收以下参数：
 
 ```
-<脚本> <本地IP> <对端IP> <前缀长度> <TUN设备> <DNS服务器>
+<脚本> <本地IP> <前缀长度> <TUN设备> <DNS服务器>
 ```
 
 - `本地IP`：客户端的隧道 IP 地址
-- `对端IP`：服务器的隧道 IP 地址
 - `前缀长度`：网络前缀长度（例如 24）
 - `TUN设备`：TUN 设备名称（例如 utun5、tun0）
 - `DNS服务器`：服务器推送的 DNS 服务器 IP，逗号分隔（可能为空）
@@ -282,10 +281,9 @@ pub struct VpnStats {
 ```bash
 #!/bin/bash
 LOCAL_IP=$1
-PEER_IP=$2
-PREFIX=$3
-TUN_DEV=$4
-DNS_SERVERS=$5
+PREFIX=$2
+TUN_DEV=$3
+DNS_SERVERS=$4
 
 echo "已连接: $LOCAL_IP 通过 $TUN_DEV"
 echo "DNS 服务器: $DNS_SERVERS"

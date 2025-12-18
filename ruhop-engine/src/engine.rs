@@ -945,7 +945,6 @@ impl VpnEngine {
             .collect();
         let script_params = ScriptParams::with_dns(
             IpAddr::V4(tunnel_ipv4),
-            IpAddr::V4(server_tunnel_ip),
             mask,
             &tun_name,
             &dns_ips,
