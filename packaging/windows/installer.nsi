@@ -6,8 +6,6 @@
 ; cargo-packager provided variables
 !define LICENSE "{{license}}"
 !define MAINBINARYSRCPATH "{{main_binary_path}}"
-; Resources directory is set from environment variable in CI
-!define RESOURCES "$%GITHUB_WORKSPACE%\packaging\windows"
 
 ; General
 Name "Ruhop VPN"
@@ -52,17 +50,20 @@ Section "Install"
     ; Install main executable
     File "${MAINBINARYSRCPATH}"
 
-    ; Install wintun.dll to System32 for service compatibility
-    SetOutPath "$SYSDIR"
-    File "${RESOURCES}\wintun.dll"
+    ; Install resources to $INSTDIR first
+    {{#each resources}}
+    File /a "/oname={{this}}" "{{@key}}"
+    {{/each}}
 
-    ; Create config directory
+    ; Move wintun.dll to System32 for service compatibility
+    CopyFiles "$INSTDIR\wintun.dll" "$SYSDIR\wintun.dll"
+    Delete "$INSTDIR\wintun.dll"
+
+    ; Create config directory and move example config
     CreateDirectory "$APPDATA\Ruhop"
-
-    ; Install example config if no config exists
-    SetOutPath "$APPDATA\Ruhop"
-    IfFileExists "$APPDATA\Ruhop\ruhop.toml" +2 0
-    File /oname=$APPDATA\Ruhop\ruhop.toml.example "${RESOURCES}\ruhop.toml.example"
+    IfFileExists "$APPDATA\Ruhop\ruhop.toml" +3 0
+    CopyFiles "$INSTDIR\ruhop.toml.example" "$APPDATA\Ruhop\ruhop.toml.example"
+    Delete "$INSTDIR\ruhop.toml.example"
 
     ; Create Start Menu shortcuts
     CreateDirectory "$SMPROGRAMS\Ruhop"
