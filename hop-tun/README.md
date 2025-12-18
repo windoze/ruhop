@@ -36,8 +36,15 @@ hop-tun = { path = "../hop-tun" }
 
 ### Linux
 
-- Root privileges or `CAP_NET_ADMIN` capability
+- Root privileges or the following capabilities:
+  - `CAP_NET_ADMIN` - Required for TUN device and route management
+  - `CAP_NET_RAW` - Required for TUN device creation
 - TUN kernel module loaded (`modprobe tun`)
+
+To run without root:
+```bash
+sudo setcap 'cap_net_admin,cap_net_raw=eip' /path/to/binary
+```
 
 ### macOS
 

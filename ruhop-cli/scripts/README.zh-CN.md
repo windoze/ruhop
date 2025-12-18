@@ -187,7 +187,10 @@ option mode 'server'
 ### 常见问题
 
 1. **TUN 设备权限被拒绝**
-   - 确保二进制文件具有 CAP_NET_ADMIN 能力（Linux）
+   - 确保二进制文件具有所需能力（Linux）：
+     ```bash
+     sudo setcap 'cap_net_admin,cap_net_raw,cap_net_bind_service=eip' /usr/local/bin/ruhop
+     ```
    - 在 macOS 上以 root 身份运行
 
 2. **配置文件未找到**

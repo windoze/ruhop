@@ -312,7 +312,10 @@ ip route add 192.168.100.0/24 via $PEER_IP dev $TUN_DEV
 
 ## Requirements
 
-- **Linux**: Root privileges or `CAP_NET_ADMIN`
+- **Linux**: Root privileges or the following capabilities:
+  - `CAP_NET_ADMIN` - Required for TUN device and route management
+  - `CAP_NET_RAW` - Required for TUN device creation
+  - `CAP_NET_BIND_SERVICE` - Required for DNS proxy (binding to port 53)
 - **macOS**: Root privileges
 - **Windows**: Administrator privileges, WinTun driver installed (`wintun.dll` in `C:\Windows\System32`)
 
@@ -386,7 +389,7 @@ reconnect_delay = 5         # 5 seconds between attempts
 sudo ruhop client
 
 # Or grant capabilities (Linux)
-sudo setcap cap_net_admin=eip ./target/release/ruhop
+sudo setcap 'cap_net_admin,cap_net_raw,cap_net_bind_service=eip' ./target/release/ruhop
 ```
 
 ### Connection Timeout

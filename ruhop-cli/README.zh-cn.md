@@ -312,7 +312,10 @@ ip route add 192.168.100.0/24 via $PEER_IP dev $TUN_DEV
 
 ## 要求
 
-- **Linux**：Root 权限或 `CAP_NET_ADMIN`
+- **Linux**：Root 权限或以下能力：
+  - `CAP_NET_ADMIN` - TUN 设备和路由管理所需
+  - `CAP_NET_RAW` - TUN 设备创建所需
+  - `CAP_NET_BIND_SERVICE` - DNS 代理所需（绑定 53 端口）
 - **macOS**：Root 权限
 - **Windows**：管理员权限，已安装 WinTun 驱动（`wintun.dll` 位于 `C:\Windows\System32`）
 
@@ -386,7 +389,7 @@ reconnect_delay = 5         # 尝试间隔 5 秒
 sudo ruhop client
 
 # 或授予 capabilities（Linux）
-sudo setcap cap_net_admin=eip ./target/release/ruhop
+sudo setcap 'cap_net_admin,cap_net_raw,cap_net_bind_service=eip' ./target/release/ruhop
 ```
 
 ### 连接超时

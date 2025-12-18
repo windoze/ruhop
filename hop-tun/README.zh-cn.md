@@ -36,8 +36,15 @@ hop-tun = { path = "../hop-tun" }
 
 ### Linux
 
-- Root 权限或 `CAP_NET_ADMIN` 能力
+- Root 权限或以下能力：
+  - `CAP_NET_ADMIN` - TUN 设备和路由管理所需
+  - `CAP_NET_RAW` - TUN 设备创建所需
 - 已加载 TUN 内核模块（`modprobe tun`）
+
+无 root 运行：
+```bash
+sudo setcap 'cap_net_admin,cap_net_raw=eip' /path/to/binary
+```
 
 ### macOS
 

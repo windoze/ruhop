@@ -187,7 +187,10 @@ option mode 'server'
 ### Common Issues
 
 1. **Permission denied on TUN device**
-   - Ensure the binary has CAP_NET_ADMIN capability (Linux)
+   - Ensure the binary has required capabilities (Linux):
+     ```bash
+     sudo setcap 'cap_net_admin,cap_net_raw,cap_net_bind_service=eip' /usr/local/bin/ruhop
+     ```
    - Run as root on macOS
 
 2. **Config file not found**
