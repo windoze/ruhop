@@ -6,7 +6,8 @@
 ; cargo-packager provided variables
 !define LICENSE "{{license}}"
 !define MAINBINARYSRCPATH "{{main_binary_path}}"
-!define RESOURCES "{{resources_path}}"
+; Resources are in the source directory since we specify them in resources config
+!define RESOURCES "{{source_root}}\packaging\windows"
 
 ; General
 Name "Ruhop VPN"
