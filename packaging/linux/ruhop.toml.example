@@ -1,0 +1,39 @@
+# Ruhop VPN Client Configuration
+# Copy this file to /etc/ruhop/ruhop.toml and edit as needed
+
+[common]
+# Pre-shared key (must match server)
+key = "your-secret-key-here"
+
+# MTU for the tunnel interface
+mtu = 1400
+
+# Log level: error, warn, info, debug, trace
+log_level = "info"
+
+# Enable packet obfuscation
+obfuscation = false
+
+# Heartbeat interval in seconds
+heartbeat_interval = 30
+
+[client]
+# Server address (hostname or IP, or array for multi-homed servers)
+server = "vpn.example.com"
+# server = ["vpn1.example.com", "vpn2.example.com"]
+
+# Port range (must match server configuration)
+port_range = [4096, 4196]
+
+# Route all traffic through VPN
+route_all_traffic = true
+
+# Automatically reconnect on connection loss
+auto_reconnect = true
+
+# Delay between reconnection attempts (seconds)
+reconnect_delay = 5
+
+# Optional: scripts to run on connect/disconnect
+# on_connect = "/etc/ruhop/on-connect.sh"
+# on_disconnect = "/etc/ruhop/on-disconnect.sh"

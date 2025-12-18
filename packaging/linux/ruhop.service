@@ -1,0 +1,16 @@
+[Unit]
+Description=Ruhop VPN Client
+Documentation=https://github.com/user/ruhop
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/ruhop client --config /etc/ruhop/ruhop.toml
+ExecStop=/bin/kill -SIGTERM $MAINPID
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=30
+
+[Install]
+WantedBy=multi-user.target

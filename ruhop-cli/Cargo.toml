@@ -38,3 +38,31 @@ qrcode = { version = "0.14", default-features = false }
 [target.'cfg(windows)'.dependencies]
 windows-service = "0.8"
 hop-tun = { path = "../hop-tun" }
+
+[package.metadata.bundle]
+name = "Ruhop VPN"
+identifier = "com.ruhop.vpn"
+icon = ["../assets/icon.png"]
+copyright = "Copyright (c) 2024"
+category = "Network"
+short_description = "UDP-based VPN with port hopping"
+long_description = """
+Ruhop is a Rust implementation of the GoHop VPN protocol - a UDP-based VPN
+with port hopping capabilities for traffic obfuscation.
+"""
+
+[package.metadata.bundle.deb]
+depends = ["libc6", "systemd", "iptables", "iproute2", "kmod", "procps", "ethtool"]
+section = "net"
+priority = "optional"
+assets = [
+    ["target/release/ruhop", "/usr/bin/ruhop", "755"],
+    ["../packaging/linux/ruhop.service", "/lib/systemd/system/ruhop.service", "644"],
+    ["../packaging/linux/ruhop.toml.example", "/etc/ruhop/ruhop.toml.example", "644"],
+]
+conf_files = ["/etc/ruhop/ruhop.toml.example"]
+maintainer_scripts = "../packaging/linux/scripts"
+
+[package.metadata.bundle.nsis]
+template = "../packaging/windows/installer.nsi"
+resources = ["../packaging/windows/wintun.dll", "../packaging/windows/ruhop.toml.example"]
