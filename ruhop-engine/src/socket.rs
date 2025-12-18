@@ -153,6 +153,7 @@ impl TrackedUdpSocket {
         let mut cmsg_buf = nix::cmsg_space!(libc::in_pktinfo);
 
         // Use try_io to perform the blocking recvmsg in a non-blocking context
+        #[allow(unreachable_patterns)] // EAGAIN == EWOULDBLOCK on some platforms
         let result = self.socket.try_io(tokio::io::Interest::READABLE, || {
             match recvmsg::<SockaddrStorage>(fd, &mut iov, Some(&mut cmsg_buf), MsgFlags::empty()) {
                 Ok(msg) => Ok(msg),
@@ -305,13 +306,14 @@ impl TrackedUdpSocket {
 
         let cmsg = [ControlMessage::Ipv4PacketInfo(&pktinfo)];
 
+        #[allow(unreachable_patterns)] // EAGAIN == EWOULDBLOCK on some platforms
         self.socket.try_io(tokio::io::Interest::WRITABLE, || {
             match sendmsg(fd, &iov, &cmsg, MsgFlags::empty(), Some(&dst)) {
                 Ok(n) => Ok(n),
                 Err(nix::errno::Errno::EAGAIN) | Err(nix::errno::Errno::EWOULDBLOCK) => {
                     Err(io::Error::from(io::ErrorKind::WouldBlock))
                 }
-                Err(e) => Err(io::Error::new(io::ErrorKind::Other, e)),
+                Err(e) => Err(io::Error::other(e)),
             }
         })
     }
