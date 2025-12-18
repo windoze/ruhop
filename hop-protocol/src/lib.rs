@@ -18,7 +18,7 @@ pub use error::{Error, Result};
 pub use flags::Flags;
 pub use fragment::{fragment_packet, FragmentAssembler, FragmentedPacket};
 pub use packet::{Packet, PacketHeader, HOP_HDR_LEN};
-pub use pool::{AddressPair, IpPool, Ipv4Pool, Ipv6Pool};
+pub use pool::{IpPool, Ipv4Pool, Ipv6Pool};
 pub use session::{Session, SessionId, SessionState};
 
 /// Protocol version

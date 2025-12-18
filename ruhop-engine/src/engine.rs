@@ -48,7 +48,8 @@ struct ClientSession {
     session: Session,
     peer_addr: SocketAddr,
     last_activity: Instant,
-    address_pair: hop_protocol::AddressPair,
+    /// Client's assigned address
+    client_addr: hop_protocol::AssignedAddress,
     /// Index of the socket that most recently received a packet from this client.
     /// Server must reply from this socket for NAT traversal to work.
     last_recv_socket_idx: usize,
@@ -648,8 +649,8 @@ impl VpnEngine {
                                     client.last_activity = Instant::now();
                                     if client.session.state == SessionState::Handshake {
                                         if let Err(e) = client.session.complete_handshake_v2(
-                                            client.address_pair.client.ip,
-                                            client.address_pair.client.mask,
+                                            client.client_addr.ip,
+                                            client.client_addr.mask,
                                         ) {
                                             log::error!("Failed to complete handshake: {}", e);
                                         }
@@ -1440,8 +1441,8 @@ async fn handle_server_knock_multi(
     }
 
     // Allocate IP address
-    let address_pair = match pool.lock().await.allocate() {
-        Ok(pair) => pair,
+    let client_addr = match pool.lock().await.allocate() {
+        Ok(addr) => addr,
         Err(e) => {
             log::error!("IP allocation failed: {}", e);
             return;
@@ -1458,7 +1459,7 @@ async fn handle_server_knock_multi(
             session,
             peer_addr,
             last_activity: Instant::now(),
-            address_pair,
+            client_addr,
             last_recv_socket_idx: socket_idx,
             last_recv_local_addr: local_addr,
         },
@@ -1468,17 +1469,16 @@ async fn handle_server_knock_multi(
     shared_stats.set_active_sessions(sessions_lock.len());
 
     // Add IP mapping
-    if let IpAddress::V4(ip) = address_pair.client.ip {
+    if let IpAddress::V4(ip) = client_addr.ip {
         ip_to_session.write().await.insert(ip, sid);
     }
 
     log::info!(
-        "New client knock from {} to local {}: sid={}, client={}, peer={}",
+        "New client knock from {} to local {}: sid={}, assigned={}",
         peer_addr,
         local_addr,
         SessionId::new(sid),
-        address_pair.client.ip,
-        address_pair.server_peer.ip
+        client_addr.ip
     );
 }
 
@@ -1516,8 +1516,8 @@ async fn handle_server_handshake(
         }
 
         // Allocate IP
-        let address_pair = match pool.lock().await.allocate() {
-            Ok(pair) => pair,
+        let client_addr = match pool.lock().await.allocate() {
+            Ok(addr) => addr,
             Err(e) => {
                 log::error!("IP allocation failed: {}", e);
                 return;
@@ -1532,13 +1532,13 @@ async fn handle_server_handshake(
                 session,
                 peer_addr,
                 last_activity: Instant::now(),
-                address_pair,
+                client_addr,
                 last_recv_socket_idx: socket_idx,
                 last_recv_local_addr: local_addr,
             },
         );
 
-        if let IpAddress::V4(ip) = address_pair.client.ip {
+        if let IpAddress::V4(ip) = client_addr.ip {
             ip_to_session.write().await.insert(ip, sid);
         }
 
@@ -1555,8 +1555,8 @@ async fn handle_server_handshake(
 
     // Send handshake response with assigned IP and DNS servers (v4 protocol)
     let addresses = AssignedAddresses::single(
-        client.address_pair.client.ip,
-        client.address_pair.client.mask,
+        client.client_addr.ip,
+        client.client_addr.mask,
     );
     let response = Packet::handshake_response_v4(sid, addresses, dns_servers.to_vec());
 
@@ -1570,13 +1570,13 @@ async fn handle_server_handshake(
                     "Sent handshake response to {} from local {}: ip={}",
                     peer_addr,
                     local_addr,
-                    client.address_pair.client.ip
+                    client.client_addr.ip
                 );
 
                 event_handler
                     .on_event(VpnEvent::ClientConnected {
                         session_id: sid,
-                        assigned_ip: match client.address_pair.client.ip {
+                        assigned_ip: match client.client_addr.ip {
                             IpAddress::V4(ip) => IpAddr::V4(ip),
                             IpAddress::V6(ip) => IpAddr::V6(ip),
                         },
@@ -1618,17 +1618,17 @@ async fn handle_server_finish(
         }
 
         // Remove IP mapping
-        if let IpAddress::V4(ip) = client.address_pair.client.ip {
+        if let IpAddress::V4(ip) = client.client_addr.ip {
             ip_to_session.write().await.remove(&ip);
         }
 
         // Release IP back to pool
-        pool.lock().await.release(&client.address_pair.client.ip);
+        pool.lock().await.release(&client.client_addr.ip);
 
         log::info!(
             "Client {} disconnected: {}",
             SessionId::new(sid),
-            client.address_pair.client.ip
+            client.client_addr.ip
         );
 
         event_handler
