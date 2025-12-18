@@ -6,8 +6,7 @@
 ; cargo-packager provided variables
 !define LICENSE "{{license}}"
 !define MAINBINARYSRCPATH "{{main_binary_path}}"
-!define WINTUNDLL "C:\Users\xuchen\source\repos\ruhop\packaging\windows\wintun.dll"
-!define CONFIGEXAMPLE "C:\Users\xuchen\source\repos\ruhop\packaging\windows\ruhop.toml.example"
+!define RESOURCES "{{resources}}"
 
 ; General
 Name "Ruhop VPN"
@@ -54,7 +53,7 @@ Section "Install"
 
     ; Install wintun.dll to System32 for service compatibility
     SetOutPath "$SYSDIR"
-    File "${WINTUNDLL}"
+    File "${RESOURCES}\wintun.dll"
 
     ; Create config directory
     CreateDirectory "$APPDATA\Ruhop"
@@ -62,7 +61,7 @@ Section "Install"
     ; Install example config if no config exists
     SetOutPath "$APPDATA\Ruhop"
     IfFileExists "$APPDATA\Ruhop\ruhop.toml" +2 0
-    File /oname=$APPDATA\Ruhop\ruhop.toml.example "${CONFIGEXAMPLE}"
+    File /oname=$APPDATA\Ruhop\ruhop.toml.example "${RESOURCES}\ruhop.toml.example"
 
     ; Create Start Menu shortcuts
     CreateDirectory "$SMPROGRAMS\Ruhop"
