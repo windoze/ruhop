@@ -502,7 +502,7 @@ impl ControlClient {
             loop {
                 match ClientOptions::new().open(&pipe_name) {
                     Ok(pipe) => break pipe,
-                    Err(e) if attempts < 3 => {
+                    Err(_e) if attempts < 3 => {
                         // Pipe might be busy, wait and retry
                         tokio::time::sleep(Duration::from_millis(100)).await;
                         attempts += 1;

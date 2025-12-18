@@ -6,7 +6,10 @@
 //! IP_RECVDSTADDR (macOS/BSD).
 
 use std::io;
-use std::net::{IpAddr, Ipv4Addr, SocketAddr, SocketAddrV4};
+use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+
+#[cfg(unix)]
+use std::net::SocketAddrV4;
 
 #[cfg(unix)]
 use std::os::fd::AsRawFd;
