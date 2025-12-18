@@ -76,6 +76,64 @@ jobs:
           name: linux-arm64
           path: artifacts/${{ env.BINARY_NAME }}-linux-arm64
 
+  package-linux-amd64-deb:
+    name: Package Linux x86_64 DEB
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install cargo-packager
+        run: cargo install cargo-packager --locked
+
+      - name: Build and package DEB
+        run: |
+          cargo build --release -p ruhop-cli
+          cargo packager --release -p ruhop-cli --formats deb
+
+      - name: Prepare artifact
+        run: |
+          mkdir -p artifacts
+          cp target/release/*.deb artifacts/${{ env.BINARY_NAME }}-linux-amd64.deb
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-amd64-deb
+          path: artifacts/${{ env.BINARY_NAME }}-linux-amd64.deb
+
+  package-linux-arm64-deb:
+    name: Package Linux aarch64 DEB
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install cargo-packager
+        run: cargo install cargo-packager --locked
+
+      - name: Build and package DEB
+        run: |
+          cargo build --release -p ruhop-cli
+          cargo packager --release -p ruhop-cli --formats deb
+
+      - name: Prepare artifact
+        run: |
+          mkdir -p artifacts
+          cp target/release/*.deb artifacts/${{ env.BINARY_NAME }}-linux-arm64.deb
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-arm64-deb
+          path: artifacts/${{ env.BINARY_NAME }}-linux-arm64.deb
+
   build-macos:
     name: Build macOS Universal
     runs-on: macos-latest
@@ -119,24 +177,44 @@ jobs:
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
 
+      - name: Install cargo-packager
+        run: cargo install cargo-packager --locked
+
+      - name: Download wintun.dll
+        shell: pwsh
+        run: |
+          Invoke-WebRequest -Uri "https://www.wintun.net/builds/wintun-0.14.1.zip" -OutFile "wintun.zip"
+          Expand-Archive -Path "wintun.zip" -DestinationPath "wintun"
+          Copy-Item "wintun\wintun\bin\amd64\wintun.dll" "packaging\windows\wintun.dll"
+
       - name: Build
         run: cargo build --release -p ruhop-cli
 
-      - name: Prepare artifact
+      - name: Package NSIS installer
+        run: cargo packager --release -p ruhop-cli --formats nsis
+
+      - name: Prepare artifacts
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force -Path artifacts
           Copy-Item "target\release\${{ env.BINARY_NAME }}.exe" "artifacts\${{ env.BINARY_NAME }}-windows-amd64.exe"
+          Copy-Item "target\release\nsis\*.exe" "artifacts\${{ env.BINARY_NAME }}-windows-amd64-setup.exe"
 
-      - name: Upload artifact
+      - name: Upload standalone binary
         uses: actions/upload-artifact@v4
         with:
           name: windows-amd64
           path: artifacts/${{ env.BINARY_NAME }}-windows-amd64.exe
 
+      - name: Upload NSIS installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-amd64-setup
+          path: artifacts/${{ env.BINARY_NAME }}-windows-amd64-setup.exe
+
   release:
     name: Create Release
-    needs: [build-linux-amd64, build-linux-arm64, build-macos, build-windows]
+    needs: [build-linux-amd64, build-linux-arm64, package-linux-amd64-deb, package-linux-arm64-deb, build-macos, build-windows]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -166,8 +244,11 @@ jobs:
           # Move and rename artifacts
           mv artifacts/linux-amd64/${{ env.BINARY_NAME }}-linux-amd64 release/
           mv artifacts/linux-arm64/${{ env.BINARY_NAME }}-linux-arm64 release/
+          mv artifacts/linux-amd64-deb/${{ env.BINARY_NAME }}-linux-amd64.deb release/
+          mv artifacts/linux-arm64-deb/${{ env.BINARY_NAME }}-linux-arm64.deb release/
           mv artifacts/macos-universal/${{ env.BINARY_NAME }}-macos-universal release/
           mv artifacts/windows-amd64/${{ env.BINARY_NAME }}-windows-amd64.exe release/
+          mv artifacts/windows-amd64-setup/${{ env.BINARY_NAME }}-windows-amd64-setup.exe release/
           # Generate checksums
           cd release
           sha256sum * > SHA256SUMS.txt
@@ -183,6 +264,9 @@ jobs:
           files: |
             release/${{ env.BINARY_NAME }}-linux-amd64
             release/${{ env.BINARY_NAME }}-linux-arm64
+            release/${{ env.BINARY_NAME }}-linux-amd64.deb
+            release/${{ env.BINARY_NAME }}-linux-arm64.deb
             release/${{ env.BINARY_NAME }}-macos-universal
             release/${{ env.BINARY_NAME }}-windows-amd64.exe
+            release/${{ env.BINARY_NAME }}-windows-amd64-setup.exe
             release/SHA256SUMS.txt
