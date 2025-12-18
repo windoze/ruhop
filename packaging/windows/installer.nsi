@@ -6,8 +6,8 @@
 ; cargo-packager provided variables
 !define LICENSE "{{license}}"
 !define MAINBINARYSRCPATH "{{main_binary_path}}"
-; Resources are in the source directory since we specify them in resources config
-!define RESOURCES "{{source_root}}\packaging\windows"
+; Resources directory is set from environment variable in CI
+!define RESOURCES "$%GITHUB_WORKSPACE%\packaging\windows"
 
 ; General
 Name "Ruhop VPN"
