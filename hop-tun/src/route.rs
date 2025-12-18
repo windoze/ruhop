@@ -350,6 +350,41 @@ impl RouteManager {
     fn add_route_windows_fallback(&self, route: &Route) -> Result<()> {
         use std::process::Command;
 
+        // First try PowerShell New-NetRoute which handles interface-only routes better
+        if route.gateway.is_none() && route.interface.is_some() {
+            if let Some(ref iface) = route.interface {
+                if let Ok(ifindex) = get_interface_index(iface) {
+                    let dest = route.destination.addr();
+                    let prefix_len = route.destination.prefix_len();
+
+                    // Use PowerShell New-NetRoute for interface-only routes
+                    let ps_cmd = format!(
+                        "New-NetRoute -DestinationPrefix '{}/{}' -InterfaceIndex {} -PolicyStore ActiveStore -ErrorAction Stop",
+                        dest, prefix_len, ifindex
+                    );
+
+                    let output = Command::new("powershell")
+                        .args(["-NoProfile", "-Command", &ps_cmd])
+                        .output()
+                        .map_err(|e| Error::Route(format!("failed to execute PowerShell: {}", e)))?;
+
+                    if output.status.success() {
+                        return Ok(());
+                    }
+
+                    let stderr = String::from_utf8_lossy(&output.stderr);
+                    // Check if route already exists
+                    if stderr.contains("already exists") || stderr.contains("ObjectAlreadyExists") {
+                        log::debug!("Route already exists: {}", route);
+                        return Ok(());
+                    }
+
+                    // If PowerShell failed, fall through to try route.exe with on-link gateway
+                    log::debug!("PowerShell New-NetRoute failed: {}, trying route.exe", stderr.trim());
+                }
+            }
+        }
+
         let dest = route.destination.addr();
         let mask = route.destination.netmask();
 
@@ -362,6 +397,10 @@ impl RouteManager {
 
         if let Some(gw) = route.gateway {
             args.push(gw.to_string());
+        } else if route.interface.is_some() {
+            // For interface-only routes, use 0.0.0.0 as "on-link" gateway
+            // This tells Windows the destination is directly reachable via the interface
+            args.push("0.0.0.0".to_string());
         }
 
         if let Some(metric) = route.metric {
