@@ -17,9 +17,31 @@ A Rust implementation of the GoHop VPN protocol - a UDP-based VPN with port hopp
 - **NAT Support**: Built-in NAT/masquerading for server mode
 - **Lifecycle Scripts**: Run custom scripts on connect/disconnect events
 
-## Quick Start
+## Installation
 
-### Build
+### Pre-built Binaries
+
+Download pre-built binaries from the [Releases](https://github.com/windoze/ruhop/releases) page:
+
+| Platform | Archive | Description |
+|----------|---------|-------------|
+| Linux x86_64 | `ruhop-linux-amd64.tar.gz` | Standalone binary (musl, static) |
+| Linux aarch64 | `ruhop-linux-arm64.tar.gz` | Standalone binary (musl, static) |
+| Linux x86_64 | `ruhop-linux-amd64.deb` | Debian/Ubuntu package with systemd service |
+| Linux aarch64 | `ruhop-linux-arm64.deb` | Debian/Ubuntu package with systemd service |
+| macOS | `ruhop-macos-universal.tar.gz` | Universal binary (Intel + Apple Silicon) |
+| Windows | `ruhop-windows-amd64.zip` | Standalone executable |
+| Windows | `ruhop-windows-amd64-setup.exe` | NSIS installer (includes wintun.dll) |
+
+**Linux/macOS**: Extract and run directly (executable permissions preserved):
+```bash
+tar -xzf ruhop-linux-amd64.tar.gz
+sudo ./ruhop client -c ruhop.toml
+```
+
+**Windows**: Extract the zip or run the installer. The NSIS installer automatically installs `wintun.dll` to System32.
+
+### Build from Source
 
 ```bash
 # Build all crates
@@ -27,6 +49,8 @@ cargo build --release
 
 # The CLI binary will be at target/release/ruhop
 ```
+
+## Quick Start
 
 ### Generate Configuration
 

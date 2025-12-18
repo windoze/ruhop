@@ -17,9 +17,31 @@ GoHop VPN 协议的 Rust 实现 - 一个支持端口跳跃的 UDP VPN，用于�
 - **NAT 支持**：服务器模式内置 NAT/伪装
 - **生命周期脚本**：在连接/断开事件时运行自定义脚本
 
-## 快速开始
+## 安装
 
-### 构建
+### 预编译二进制文件
+
+从 [Releases](https://github.com/windoze/ruhop/releases) 页面下载预编译二进制文件：
+
+| 平台 | 文件 | 说明 |
+|------|------|------|
+| Linux x86_64 | `ruhop-linux-amd64.tar.gz` | 独立二进制文件（musl，静态链接） |
+| Linux aarch64 | `ruhop-linux-arm64.tar.gz` | 独立二进制文件（musl，静态链接） |
+| Linux x86_64 | `ruhop-linux-amd64.deb` | Debian/Ubuntu 包（含 systemd 服务） |
+| Linux aarch64 | `ruhop-linux-arm64.deb` | Debian/Ubuntu 包（含 systemd 服务） |
+| macOS | `ruhop-macos-universal.tar.gz` | 通用二进制文件（Intel + Apple Silicon） |
+| Windows | `ruhop-windows-amd64.zip` | 独立可执行文件 |
+| Windows | `ruhop-windows-amd64-setup.exe` | NSIS 安装程序（包含 wintun.dll） |
+
+**Linux/macOS**：解压后直接运行（已保留可执行权限）：
+```bash
+tar -xzf ruhop-linux-amd64.tar.gz
+sudo ./ruhop client -c ruhop.toml
+```
+
+**Windows**：解压 zip 文件或运行安装程序。NSIS 安装程序会自动将 `wintun.dll` 安装到 System32。
+
+### 从源码构建
 
 ```bash
 # 构建所有 crate
@@ -27,6 +49,8 @@ cargo build --release
 
 # CLI 二进制文件位于 target/release/ruhop
 ```
+
+## 快速开始
 
 ### 生成配置
 
