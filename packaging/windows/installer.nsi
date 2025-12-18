@@ -6,7 +6,7 @@
 ; cargo-packager provided variables
 !define LICENSE "{{license}}"
 !define MAINBINARYSRCPATH "{{main_binary_path}}"
-!define RESOURCES "{{resources}}"
+!define RESOURCES "{{resources_path}}"
 
 ; General
 Name "Ruhop VPN"
