@@ -883,11 +883,13 @@ impl VpnEngine {
         }
 
         // Create TUN device with assigned IP
+        // The server allocates address pairs: server_peer gets odd IP, client gets even IP
+        // e.g., server_peer=10.139.0.13, client=10.139.0.14
+        // So peer IP = client IP - 1
         let server_tunnel_ip = match &tunnel_ip {
             IpAddress::V4(ip) => {
-                let octets = ip.octets();
-                // Server peer is typically our IP - 1
-                Ipv4Addr::new(octets[0], octets[1], octets[2], octets[3].saturating_sub(1))
+                let ip_u32 = u32::from_be_bytes(ip.octets());
+                Ipv4Addr::from((ip_u32 - 1).to_be_bytes())
             }
             _ => return Err(Error::Config("IPv6 not yet supported for client".to_string())),
         };
@@ -1467,11 +1469,12 @@ async fn handle_server_knock_multi(
     }
 
     log::info!(
-        "New client knock from {} to local {}: sid={}, assigned={}",
+        "New client knock from {} to local {}: sid={}, client={}, peer={}",
         peer_addr,
         local_addr,
         SessionId::new(sid),
-        address_pair.client.ip
+        address_pair.client.ip,
+        address_pair.server_peer.ip
     );
 }
 
