@@ -198,7 +198,7 @@ jobs:
         run: |
           New-Item -ItemType Directory -Force -Path artifacts
           Copy-Item "target\release\${{ env.BINARY_NAME }}.exe" "artifacts\${{ env.BINARY_NAME }}-windows-amd64.exe"
-          Copy-Item "target\release\nsis\*.exe" "artifacts\${{ env.BINARY_NAME }}-windows-amd64-setup.exe"
+          Copy-Item "target\release\*-setup.exe" "artifacts\${{ env.BINARY_NAME }}-windows-amd64-setup.exe"
 
       - name: Upload standalone binary
         uses: actions/upload-artifact@v4
