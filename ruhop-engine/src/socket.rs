@@ -6,7 +6,9 @@
 //! IP_RECVDSTADDR (macOS/BSD).
 
 use std::io;
-use std::net::{IpAddr, Ipv4Addr, SocketAddr, SocketAddrV4};
+use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+
+#[cfg(unix)]
 use std::os::fd::AsRawFd;
 
 use socket2::{Domain, Protocol, SockAddr, Socket, Type};
@@ -392,6 +394,7 @@ impl TrackedUdpSocket {
     }
 }
 
+#[cfg(unix)]
 impl AsRawFd for TrackedUdpSocket {
     fn as_raw_fd(&self) -> std::os::fd::RawFd {
         self.socket.as_raw_fd()
