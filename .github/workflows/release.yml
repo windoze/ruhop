@@ -79,7 +79,7 @@ jobs:
           path: artifacts/${{ env.BINARY_NAME }}-linux-arm64.tar.gz
 
   package-linux-amd64-deb:
-    name: Package Linux x86_64 DEB
+    name: Package Linux x86_64 DEB (musl)
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -87,19 +87,24 @@ jobs:
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-unknown-linux-musl
+
+      - name: Install musl-tools
+        run: sudo apt-get update && sudo apt-get install -y musl-tools
 
       - name: Install cargo-packager
         run: cargo install cargo-packager --locked
 
       - name: Build and package DEB
         run: |
-          cargo build --release -p ruhop-cli
-          cargo packager --release -p ruhop-cli --formats deb
+          cargo build --release --target x86_64-unknown-linux-musl -p ruhop-cli
+          cargo packager --release -p ruhop-cli --formats deb --target x86_64-unknown-linux-musl
 
       - name: Prepare artifact
         run: |
           mkdir -p artifacts
-          cp target/release/*.deb artifacts/${{ env.BINARY_NAME }}-linux-amd64.deb
+          cp target/x86_64-unknown-linux-musl/release/*.deb artifacts/${{ env.BINARY_NAME }}-linux-amd64.deb
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
@@ -108,7 +113,7 @@ jobs:
           path: artifacts/${{ env.BINARY_NAME }}-linux-amd64.deb
 
   package-linux-arm64-deb:
-    name: Package Linux aarch64 DEB
+    name: Package Linux aarch64 DEB (musl)
     runs-on: ubuntu-24.04-arm
     steps:
       - name: Checkout
@@ -116,19 +121,24 @@ jobs:
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-unknown-linux-musl
+
+      - name: Install musl-tools
+        run: sudo apt-get update && sudo apt-get install -y musl-tools
 
       - name: Install cargo-packager
         run: cargo install cargo-packager --locked
 
       - name: Build and package DEB
         run: |
-          cargo build --release -p ruhop-cli
-          cargo packager --release -p ruhop-cli --formats deb
+          cargo build --release --target aarch64-unknown-linux-musl -p ruhop-cli
+          cargo packager --release -p ruhop-cli --formats deb --target aarch64-unknown-linux-musl
 
       - name: Prepare artifact
         run: |
           mkdir -p artifacts
-          cp target/release/*.deb artifacts/${{ env.BINARY_NAME }}-linux-arm64.deb
+          cp target/aarch64-unknown-linux-musl/release/*.deb artifacts/${{ env.BINARY_NAME }}-linux-arm64.deb
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4

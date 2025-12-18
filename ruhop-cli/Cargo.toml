@@ -54,7 +54,7 @@ with port hopping capabilities for traffic obfuscation.
 """
 
 [package.metadata.packager.deb]
-depends = ["libc6", "systemd", "iptables", "iproute2", "kmod", "procps", "ethtool"]
+depends = ["systemd", "iptables", "iproute2", "kmod"]
 section = "net"
 priority = "optional"
 
