@@ -44,7 +44,7 @@ name = "Ruhop VPN"
 identifier = "com.ruhop.vpn"
 icon = ["../assets/icon.png"]
 copyright = "Copyright (c) 2024"
-category = "Network"
+category = "Utility"
 short_description = "UDP-based VPN with port hopping"
 long_description = """
 Ruhop is a Rust implementation of the GoHop VPN protocol - a UDP-based VPN
