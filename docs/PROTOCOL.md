@@ -219,11 +219,145 @@ Payload: Raw IP packet from tun interface
 
 ### Port and IP Hopping
 
-- Both client and server maintain multiple UDP address mappings
-- Server can advertise multiple IP addresses during handshake (multi-homed servers)
-- When sending, a random address/port from the known set is selected
-- Client can hop between different server IPs and ports for improved obfuscation
-- This provides resilience against IP blocking and port blocking
+Port hopping is the core obfuscation mechanism in GoHop. Both client and server randomly select destination addresses for each packet, making traffic analysis difficult.
+
+#### Address Pool Generation
+
+The client generates an address pool from the configuration:
+
+```
+Address Pool = Server IPs × Port Range
+```
+
+Example with 3 server IPs and ports 4096-4100:
+```
+server = ["203.0.113.1", "203.0.113.2", "198.51.100.1"]
+port_range = [4096, 4100]
+
+Address Pool (15 addresses):
+  203.0.113.1:4096,  203.0.113.1:4097,  203.0.113.1:4098,  203.0.113.1:4099,  203.0.113.1:4100
+  203.0.113.2:4096,  203.0.113.2:4097,  203.0.113.2:4098,  203.0.113.2:4099,  203.0.113.2:4100
+  198.51.100.1:4096, 198.51.100.1:4097, 198.51.100.1:4098, 198.51.100.1:4099, 198.51.100.1:4100
+```
+
+#### Client Sending Behavior
+
+For **every packet** sent (including knock, handshake, data, heartbeat, and FIN packets), the client:
+
+1. Randomly selects an address from the pool
+2. Sends the packet to that address
+3. The next packet may go to a completely different address
+
+```
+Client                                              Server
+   |                                                   |
+   |-- Knock -----> 203.0.113.1:4097 ---------------->|
+   |-- Knock -----> 198.51.100.1:4099 --------------->|
+   |-- Knock -----> 203.0.113.2:4096 ---------------->|
+   |-- Handshake -> 203.0.113.1:4100 ---------------->|
+   |<-------------- Handshake ACK --------------------|
+   |-- Confirm ---> 198.51.100.1:4097 --------------->|
+   |-- Data ------> 203.0.113.2:4098 ---------------->|
+   |-- Data ------> 203.0.113.1:4096 ---------------->|
+   |<-------------- Data -----------------------------|
+   |-- Data ------> 198.51.100.1:4100 --------------->|
+   |                                                   |
+```
+
+#### Server Socket Architecture
+
+The server binds **one UDP socket per port** in the configured range:
+
+```
+[server]
+listen = "0.0.0.0"
+port_range = [4096, 4100]
+
+Creates 5 sockets:
+  Socket 0: 0.0.0.0:4096
+  Socket 1: 0.0.0.0:4097
+  Socket 2: 0.0.0.0:4098
+  Socket 3: 0.0.0.0:4099
+  Socket 4: 0.0.0.0:4100
+```
+
+Each socket runs an independent receive loop. The socket index is tracked per-client session.
+
+#### Multi-Homed Server NAT Traversal
+
+When a server has multiple IP addresses (multi-homed), proper NAT traversal requires responding from the same local IP that received the request.
+
+**Problem**: Without tracking, responses might go out from the wrong source IP:
+```
+Client sends to: 203.0.113.1:4097 (external) → 10.0.0.1:4097 (internal via DNAT)
+Server responds from: 10.0.0.2:4097 (wrong internal IP) → 203.0.113.2:4097 (wrong external via SNAT)
+Client's NAT drops the packet (unexpected source)
+```
+
+**Solution**: Server uses `IP_PKTINFO` (Linux) or `IP_RECVDSTADDR` (macOS) to track the destination IP of incoming packets:
+
+```
+1. Client sends packet to 203.0.113.1:4097
+2. Cloud DNAT translates to 10.0.0.1:4097
+3. Server receives packet, kernel reports local_addr = 10.0.0.1:4097
+4. Server stores last_recv_local_addr = 10.0.0.1:4097 for this session
+5. Server sends response using sendmsg() with IP_PKTINFO to force source = 10.0.0.1
+6. Cloud SNAT translates back to 203.0.113.1:4097
+7. Client receives response from expected address
+```
+
+#### Session Address Tracking
+
+The server tracks per-client session:
+
+| Field | Description |
+|-------|-------------|
+| `peer_addr` | Client's current source address (IP:port) |
+| `last_recv_socket_idx` | Index of socket that last received from this client |
+| `last_recv_local_addr` | Local IP:port that received the last packet |
+
+These fields are updated on **every received packet** to handle:
+- Client's source port changes (NAT rebinding)
+- Client hopping between different server IPs
+- Proper response routing for multi-homed servers
+
+#### Server Response Behavior
+
+When the server sends packets back to a client (data, heartbeat ACK, etc.):
+
+1. Uses the socket at `last_recv_socket_idx`
+2. Sends from `last_recv_local_addr.ip()` for multi-homed NAT traversal
+3. Sends to `peer_addr` (client's last known address)
+
+This ensures responses go out from the same IP that received the most recent packet from that client.
+
+#### Traffic Pattern
+
+A typical session shows packets distributed across addresses:
+
+```
+Time    Direction   Address                 Packet Type
+----    ---------   -------                 -----------
+0.000   C→S        203.0.113.1:4097        Knock
+0.001   C→S        198.51.100.1:4099       Knock
+0.002   C→S        203.0.113.2:4096        Knock
+0.010   C→S        203.0.113.1:4100        Handshake
+0.095   S→C        203.0.113.1:4100        Handshake ACK
+0.096   C→S        198.51.100.1:4097       Handshake Confirm
+0.100   C→S        203.0.113.2:4098        Data
+0.102   S→C        203.0.113.2:4098        Data
+0.150   C→S        203.0.113.1:4096        Data
+0.152   S→C        203.0.113.1:4096        Data
+0.200   C→S        198.51.100.1:4100       Data
+...
+```
+
+#### Benefits
+
+1. **Traffic Analysis Resistance**: Observers see packets to many different addresses
+2. **Port Blocking Evasion**: If one port is blocked, others still work
+3. **IP Blocking Resilience**: Multiple server IPs provide redundancy
+4. **NAT Mapping Diversity**: Different source ports reduce fingerprinting
 
 ### Packet Ordering
 
