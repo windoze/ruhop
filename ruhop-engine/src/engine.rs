@@ -985,42 +985,75 @@ impl VpnEngine {
         original_gateway: Option<IpAddr>,
     ) -> Result<()> {
         // Add routes for the tunnel subnet
-        // On Linux with point-to-point TUN interfaces, we need:
-        // 1. A host route to the peer (gateway) IP via the interface (created by tun-rs)
-        // 2. A subnet route via the peer IP as gateway
-        //
-        // This results in routing like:
-        //   10.1.1.4 dev ruhop proto kernel scope link src 10.1.1.3  (from tun-rs)
-        //   10.1.1.0/24 via 10.1.1.4 dev ruhop                       (added here)
-        //
-        // On other platforms, we use a simple interface route.
         let tunnel_net = ipnet::Ipv4Net::new(tunnel_ip, prefix_len)
             .map_err(|e| Error::Config(format!("Invalid tunnel network: {}", e)))?
             .trunc(); // Get the network address
 
         #[cfg(target_os = "linux")]
-        let tunnel_route = {
-            // On Linux, create a route via the gateway (peer IP) with interface specified
-            Route::ipv4(tunnel_net.addr(), tunnel_net.prefix_len(), Some(tun_gateway))
+        {
+            // On Linux with point-to-point TUN interfaces, we need two routes:
+            // 1. A host route to the peer (gateway) IP directly via the interface
+            // 2. A subnet route via the peer IP as gateway
+            //
+            // This results in routing like:
+            //   10.1.1.4 dev ruhop scope link src 10.1.1.3
+            //   10.1.1.0/24 via 10.1.1.4 dev ruhop
+
+            // Route 1: Host route to peer (gateway) - makes the gateway reachable
+            let peer_route = Route::interface_route(
+                ipnet::IpNet::V4(ipnet::Ipv4Net::new(tun_gateway, 32).unwrap()),
+                tun_name,
+            );
+            if let Err(e) = route_manager.add(&peer_route).await {
+                self.log(
+                    LogLevel::Warning,
+                    format!("Failed to add peer route: {}", e),
+                )
+                .await;
+            } else {
+                self.log(
+                    LogLevel::Info,
+                    format!("Added route: {}/32 dev {}", tun_gateway, tun_name),
+                )
+                .await;
+            }
+
+            // Route 2: Subnet route via the gateway
+            let subnet_route = Route::ipv4(tunnel_net.addr(), tunnel_net.prefix_len(), Some(tun_gateway))
                 .map_err(|e| Error::Config(format!("Invalid tunnel route: {}", e)))?
-                .with_interface(tun_name)
-        };
+                .with_interface(tun_name);
+            if let Err(e) = route_manager.add(&subnet_route).await {
+                self.log(
+                    LogLevel::Warning,
+                    format!("Failed to add tunnel subnet route: {}", e),
+                )
+                .await;
+            } else {
+                self.log(
+                    LogLevel::Info,
+                    format!("Added route: {} via {} dev {}", tunnel_net, tun_gateway, tun_name),
+                )
+                .await;
+            }
+        }
 
         #[cfg(not(target_os = "linux"))]
-        let tunnel_route = Route::interface_route(ipnet::IpNet::V4(tunnel_net), tun_name);
-
-        if let Err(e) = route_manager.add(&tunnel_route).await {
-            self.log(
-                LogLevel::Warning,
-                format!("Failed to add tunnel subnet route: {}", e),
-            )
-            .await;
-        } else {
-            self.log(
-                LogLevel::Info,
-                format!("Added tunnel subnet route: {}", tunnel_net),
-            )
-            .await;
+        {
+            // On other platforms, use a simple interface route
+            let tunnel_route = Route::interface_route(ipnet::IpNet::V4(tunnel_net), tun_name);
+            if let Err(e) = route_manager.add(&tunnel_route).await {
+                self.log(
+                    LogLevel::Warning,
+                    format!("Failed to add tunnel subnet route: {}", e),
+                )
+                .await;
+            } else {
+                self.log(
+                    LogLevel::Info,
+                    format!("Added route: {} dev {}", tunnel_net, tun_name),
+                )
+                .await;
+            }
         }
 
         if client_config.route_all_traffic {
@@ -1115,18 +1148,26 @@ impl VpnEngine {
         server_ips: &[IpAddr],
         original_gateway: Option<IpAddr>,
     ) {
-        // Remove tunnel subnet route (always added)
+        // Remove tunnel routes (always added)
         if let Ok(tunnel_net) = ipnet::Ipv4Net::new(tunnel_ip, prefix_len) {
             let tunnel_net = tunnel_net.trunc();
 
             #[cfg(target_os = "linux")]
             {
-                // On Linux, we added a route via gateway
-                if let Ok(tunnel_route) =
+                // On Linux, we added two routes:
+                // 1. Host route to peer
+                let peer_route = Route::interface_route(
+                    ipnet::IpNet::V4(ipnet::Ipv4Net::new(tun_gateway, 32).unwrap()),
+                    tun_name,
+                );
+                let _ = route_manager.delete(&peer_route).await;
+
+                // 2. Subnet route via gateway
+                if let Ok(subnet_route) =
                     Route::ipv4(tunnel_net.addr(), tunnel_net.prefix_len(), Some(tun_gateway))
                 {
                     let _ = route_manager
-                        .delete(&tunnel_route.with_interface(tun_name))
+                        .delete(&subnet_route.with_interface(tun_name))
                         .await;
                 }
             }
