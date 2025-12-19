@@ -1,8 +1,29 @@
 //! GoHop Protocol Implementation
 //!
 //! A UDP-based VPN protocol with port hopping capabilities.
+//!
+//! # Memory Pool
+//!
+//! For high-throughput packet processing, this crate provides a thread-local buffer pool
+//! to reduce memory allocations. Use the `*_pooled` methods on [`Cipher`] and [`Packet`]
+//! for best performance:
+//!
+//! ```rust
+//! use hop_protocol::{Cipher, Packet, BufferPool};
+//!
+//! let cipher = Cipher::new(b"secret-key");
+//! let packet = Packet::data(1, 0x1234, vec![1, 2, 3]);
+//!
+//! // Pooled encryption - buffer returned to pool when dropped
+//! let encrypted = cipher.encrypt_pooled(&packet, 0).unwrap();
+//!
+//! // Or encrypt into a reusable buffer
+//! let mut output = Vec::with_capacity(2048);
+//! cipher.encrypt_into(&packet, 0, &mut output).unwrap();
+//! ```
 
 mod address;
+mod buffer_pool;
 mod crypto;
 mod error;
 mod flags;
@@ -13,6 +34,7 @@ mod session;
 pub mod transport;
 
 pub use address::{AssignedAddress, AssignedAddresses, HandshakeResponse, IpAddress};
+pub use buffer_pool::{BufferPool, PooledBuffer};
 pub use crypto::Cipher;
 pub use error::{Error, Result};
 pub use flags::Flags;

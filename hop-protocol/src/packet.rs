@@ -1,5 +1,6 @@
 //! Packet structure and serialization
 
+use crate::buffer_pool::{BufferPool, PooledBuffer};
 use crate::{Error, Flags, Result};
 
 /// Header length in bytes
@@ -357,6 +358,57 @@ impl Packet {
         Ok(Self { header, payload })
     }
 
+    // ========================================================================
+    // Pooled buffer methods for reduced allocations
+    // ========================================================================
+
+    /// Encode packet to a pooled buffer
+    ///
+    /// Returns a `PooledBuffer` that will be returned to the thread-local pool when dropped.
+    /// This is more efficient than `encode()` when encoding many packets.
+    pub fn encode_pooled(&self) -> PooledBuffer {
+        let pool = BufferPool::new();
+        let mut buf = pool.get_with_capacity(HOP_HDR_LEN + self.payload.len());
+        buf.extend_from_slice(&self.header.encode());
+        buf.extend_from_slice(&self.payload);
+        buf
+    }
+
+    /// Encode packet into an existing buffer
+    ///
+    /// The buffer will be cleared before writing. Returns the number of bytes written.
+    /// This is the most efficient encoding method when you can reuse a buffer.
+    pub fn encode_into(&self, buf: &mut Vec<u8>) -> usize {
+        buf.clear();
+        buf.reserve(HOP_HDR_LEN + self.payload.len());
+        buf.extend_from_slice(&self.header.encode());
+        buf.extend_from_slice(&self.payload);
+        buf.len()
+    }
+
+    /// Encode packet with noise into an existing buffer
+    ///
+    /// The buffer will be cleared before writing. Returns the number of bytes written.
+    pub fn encode_with_noise_into(&self, max_noise: usize, buf: &mut Vec<u8>) -> usize {
+        use rand::Rng;
+
+        buf.clear();
+        let noise_len = if max_noise > 0 {
+            rand::thread_rng().gen_range(0..=max_noise)
+        } else {
+            0
+        };
+        buf.reserve(HOP_HDR_LEN + self.payload.len() + noise_len);
+        buf.extend_from_slice(&self.header.encode());
+        buf.extend_from_slice(&self.payload);
+
+        if noise_len > 0 {
+            buf.extend((0..noise_len).map(|_| rand::random::<u8>()));
+        }
+
+        buf.len()
+    }
+
     /// Parse handshake response payload (legacy IPv4 format)
     /// Returns (protocol_version, ip, mask)
     /// For v1 protocol or when you need raw IPv4 bytes
@@ -649,5 +701,70 @@ mod tests {
         assert_eq!(version, crate::HOP_PROTO_VERSION);
         assert_eq!(response.addresses, addresses);
         assert!(response.dns_servers.is_empty());
+    }
+
+    // ========================================================================
+    // Pooled buffer tests
+    // ========================================================================
+
+    #[test]
+    fn test_encode_pooled() {
+        let packet = Packet::data(42, 0x12345678, vec![1, 2, 3, 4, 5]);
+        let encoded = packet.encode_pooled();
+
+        // Should produce same output as regular encode
+        assert_eq!(&encoded[..], &packet.encode()[..]);
+    }
+
+    #[test]
+    fn test_encode_into() {
+        let packet = Packet::data(42, 0x12345678, vec![1, 2, 3, 4, 5]);
+        let mut buf = Vec::new();
+
+        let len = packet.encode_into(&mut buf);
+        assert_eq!(len, buf.len());
+        assert_eq!(&buf[..], &packet.encode()[..]);
+
+        // Test reuse - buffer should be cleared
+        let packet2 = Packet::data(100, 0xABCD, vec![0xFF; 10]);
+        let len2 = packet2.encode_into(&mut buf);
+        assert_eq!(len2, buf.len());
+        assert_eq!(&buf[..], &packet2.encode()[..]);
+    }
+
+    #[test]
+    fn test_encode_with_noise_into() {
+        let packet = Packet::data(42, 0x12345678, vec![1, 2, 3, 4, 5]);
+        let mut buf = Vec::new();
+
+        let len = packet.encode_with_noise_into(100, &mut buf);
+        assert_eq!(len, buf.len());
+
+        // Should decode correctly
+        let decoded = Packet::decode(&buf).unwrap();
+        assert_eq!(packet.header, decoded.header);
+        assert_eq!(packet.payload, decoded.payload);
+    }
+
+    #[test]
+    fn test_encode_pooled_roundtrip() {
+        let original = Packet::data(999, 0xDEADBEEF, vec![0xCA, 0xFE, 0xBA, 0xBE]);
+        let encoded = original.encode_pooled();
+        let decoded = Packet::decode(&encoded).unwrap();
+
+        assert_eq!(original, decoded);
+    }
+
+    #[test]
+    fn test_encode_into_multiple_packets() {
+        let mut buf = Vec::with_capacity(4096);
+
+        // Encode multiple packets into the same buffer
+        for i in 0..100u32 {
+            let packet = Packet::data(i, i * 1000, vec![i as u8; (i % 50) as usize]);
+            packet.encode_into(&mut buf);
+            let decoded = Packet::decode(&buf).unwrap();
+            assert_eq!(packet, decoded);
+        }
     }
 }
