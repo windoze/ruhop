@@ -272,6 +272,126 @@ sudo systemctl enable ruhop
 sudo systemctl start ruhop
 ```
 
+## 在 NAT 上使用 Ruhop 客户端
+
+在路由器（如 OpenWRT）上运行 Ruhop 客户端，为网络上的其他设备提供 VPN 访问时，需要额外的配置。
+
+### 必需的设置
+
+1. **启用 IP 转发**（路由器上通常已启用）：
+   ```bash
+   sysctl -w net.ipv4.ip_forward=1
+   ```
+
+2. **添加 NAT/伪装规则**，用于通过 VPN 接口的流量：
+   ```bash
+   iptables -t nat -A POSTROUTING -o ruhop -j MASQUERADE
+   ```
+
+3. **添加 MSS 钳制**，防止 MTU 导致的 TCP 问题。
+
+   **方式 A**：在配置中启用（仅限 Linux，推荐）：
+   ```toml
+   [client]
+   mss_fix = true
+   ```
+
+   **方式 B**：通过 iptables 手动添加：
+   ```bash
+   iptables -t mangle -A FORWARD -o ruhop -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --clamp-mss-to-pmtu
+   ```
+
+4. **在客户端设备上添加路由**，将 VPN 目标指向路由器（如果 `route_all_traffic = false`）。
+
+### OpenWRT 防火墙区域配置
+
+**重要**：在 OpenWRT 上，必须将 `ruhop` 接口添加到允许从 LAN 转发的防火墙区域。这是一个常见但难以诊断的问题。
+
+#### 症状
+
+- 从路由器本身到 VPN 目标的 ping/流量正常
+- 从其他 LAN 设备通过路由器到 VPN 目标的 ping/流量不通
+- 看到 "Destination Port Unreachable" 或 "Destination Host Unreachable" 错误
+- 错误来自路由器的 LAN IP（如 192.168.1.1）
+
+#### 原因
+
+OpenWRT 使用 nftables（fw4），forward 链的**默认策略是 DROP**。如果 `ruhop` 接口不在任何防火墙区域中，转发流量会被丢弃：
+
+```
+chain forward {
+    type filter hook forward priority filter; policy drop;
+    ...
+    iifname { "wg0", "tun0" } jump forward_vpn  # ruhop 未列出！
+    jump handle_reject  # <-- 流量落到这里被拒绝
+}
+```
+
+#### 诊断
+
+检查 `ruhop` 是否在 nftables 规则中：
+```bash
+nft list ruleset | grep ruhop
+```
+
+如果没有输出，说明接口不在任何防火墙区域中。
+
+#### 解决方案
+
+将 `ruhop` 添加到 VPN 防火墙区域（或创建新区域）：
+
+```bash
+# 查找区域索引（vpn 通常是 zone[2]，请检查您的配置）
+uci show firewall | grep vpn
+
+# 将 ruhop 设备添加到区域
+uci add_list firewall.@zone[2].device='ruhop'
+uci commit firewall
+/etc/init.d/firewall reload
+```
+
+或直接编辑 `/etc/config/firewall`，在适当的区域中添加 `list device 'ruhop'`：
+
+```
+config zone
+    option name 'vpn'
+    option input 'DROP'
+    option output 'ACCEPT'
+    option forward 'ACCEPT'
+    option masq '1'
+    option mtu_fix '1'
+    list device 'ruhop'    # 添加此行
+```
+
+然后重新加载防火墙：
+```bash
+/etc/init.d/firewall reload
+```
+
+#### 验证
+
+添加接口到区域后：
+```bash
+# 现在应该能在规则中看到 ruhop
+nft list ruleset | grep ruhop
+
+# 从 LAN 设备测试
+ping <VPN服务器隧道IP>
+```
+
+### Traceroute 无法穿过 VPN NAT
+
+如果 traceroute 停在 VPN 服务器，无法显示后续跳：
+
+**原因**：VPN 服务器之后路由器返回的 ICMP Time Exceeded 消息可能无法正确通过 NAT 转发回来。
+
+**解决方案**（Linux/OpenWRT）：
+```bash
+# 允许 ICMP 错误消息被转发
+iptables -A FORWARD -p icmp --icmp-type time-exceeded -j ACCEPT
+iptables -A FORWARD -p icmp --icmp-type destination-unreachable -j ACCEPT
+```
+
 ## 监控
 
 ### 健康检查

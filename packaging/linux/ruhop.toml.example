@@ -1,8 +1,11 @@
-# Ruhop VPN Client Configuration
+# Ruhop VPN Configuration
 # Copy this file to /etc/ruhop/ruhop.toml and edit as needed
+#
+# For client mode: use `systemctl start ruhop-client`
+# For server mode: use `systemctl start ruhop-server`
 
 [common]
-# Pre-shared key (must match server)
+# Pre-shared key (must match between client and server)
 key = "your-secret-key-here"
 
 # MTU for the tunnel interface
@@ -16,6 +19,41 @@ obfuscation = false
 
 # Heartbeat interval in seconds
 heartbeat_interval = 30
+
+# Optional: TUN device name (default "ruhop")
+# tun_device = "ruhop0"
+
+# =============================================================================
+# Server Configuration
+# =============================================================================
+# This section is used in server mode, and ignored in client mode
+
+# [server]
+# # IP address to bind
+# listen = "0.0.0.0"
+#
+# # Port range - server listens on ALL ports in this range
+# port_range = [4096, 4196]
+#
+# # Tunnel network (server uses first IP, e.g., 10.0.0.1)
+# tunnel_network = "10.0.0.0/24"
+#
+# # Optional: override server tunnel IP
+# # tunnel_ip = "10.0.0.1"
+#
+# # DNS servers pushed to clients
+# dns = ["8.8.8.8", "8.8.4.4"]
+#
+# # Maximum number of connected clients
+# max_clients = 100
+#
+# # Enable NAT for client traffic
+# enable_nat = true
+
+# =============================================================================
+# Client Configuration
+# =============================================================================
+# This section is used in client mode, and ignored in server mode
 
 [client]
 # Server address (hostname or IP, or array for multi-homed servers)
@@ -33,6 +71,9 @@ auto_reconnect = true
 
 # Delay between reconnection attempts (seconds)
 reconnect_delay = 5
+
+# Enable MSS clamping for TCP traffic (useful when acting as NAT gateway)
+# mss_fix = true
 
 # Optional: scripts to run on connect/disconnect
 # on_connect = "/etc/ruhop/on-connect.sh"

@@ -272,6 +272,126 @@ sudo systemctl enable ruhop
 sudo systemctl start ruhop
 ```
 
+## Using Ruhop Client as a NAT Gateway
+
+When running the Ruhop client on a router (e.g., OpenWRT) to provide VPN access for other devices on the network, additional configuration is required.
+
+### Required Setup
+
+1. **Enable IP forwarding** (usually already enabled on routers):
+   ```bash
+   sysctl -w net.ipv4.ip_forward=1
+   ```
+
+2. **Add NAT/masquerade rule** for traffic going through the VPN interface:
+   ```bash
+   iptables -t nat -A POSTROUTING -o ruhop -j MASQUERADE
+   ```
+
+3. **Add MSS clamping** to prevent TCP issues with MTU.
+
+   **Option A**: Enable in config (Linux only, recommended):
+   ```toml
+   [client]
+   mss_fix = true
+   ```
+
+   **Option B**: Add manually via iptables:
+   ```bash
+   iptables -t mangle -A FORWARD -o ruhop -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --clamp-mss-to-pmtu
+   ```
+
+4. **Add routes on client devices** pointing to the router for VPN destinations (if `route_all_traffic = false`).
+
+### OpenWRT Firewall Zone Configuration
+
+**Important**: On OpenWRT, the `ruhop` interface must be added to a firewall zone that allows forwarding from LAN. This is a common issue that's difficult to diagnose.
+
+#### Symptom
+
+- Ping/traffic works FROM the router itself to VPN destinations
+- Ping/traffic does NOT work from other LAN devices through the router to VPN destinations
+- You see "Destination Port Unreachable" or "Destination Host Unreachable" errors
+- The errors come from the router's LAN IP (e.g., 192.168.1.1)
+
+#### Cause
+
+OpenWRT uses nftables (fw4) with a **default DROP policy** on the forward chain. If the `ruhop` interface is not in any firewall zone, forwarded traffic is dropped:
+
+```
+chain forward {
+    type filter hook forward priority filter; policy drop;
+    ...
+    iifname { "wg0", "tun0" } jump forward_vpn  # ruhop not listed!
+    jump handle_reject  # <-- traffic falls through here
+}
+```
+
+#### Diagnosis
+
+Check if `ruhop` is in the nftables rules:
+```bash
+nft list ruleset | grep ruhop
+```
+
+If there's no output, the interface is not in any firewall zone.
+
+#### Solution
+
+Add `ruhop` to the VPN firewall zone (or create a new zone):
+
+```bash
+# Find the zone index (usually zone[2] for vpn, check your config)
+uci show firewall | grep vpn
+
+# Add ruhop device to the zone
+uci add_list firewall.@zone[2].device='ruhop'
+uci commit firewall
+/etc/init.d/firewall reload
+```
+
+Or edit `/etc/config/firewall` directly and add `list device 'ruhop'` to the appropriate zone:
+
+```
+config zone
+    option name 'vpn'
+    option input 'DROP'
+    option output 'ACCEPT'
+    option forward 'ACCEPT'
+    option masq '1'
+    option mtu_fix '1'
+    list device 'ruhop'    # Add this line
+```
+
+Then reload the firewall:
+```bash
+/etc/init.d/firewall reload
+```
+
+#### Verification
+
+After adding the interface to the zone:
+```bash
+# Should now show ruhop in the rules
+nft list ruleset | grep ruhop
+
+# Test from a LAN device
+ping <vpn_server_tunnel_ip>
+```
+
+### Traceroute Not Working Through VPN NAT
+
+If traceroute stops at the VPN server and doesn't show hops beyond:
+
+**Cause**: ICMP Time Exceeded messages from routers beyond the VPN server may not be properly forwarded back through NAT.
+
+**Solution** (Linux/OpenWRT):
+```bash
+# Allow ICMP error messages to be forwarded
+iptables -A FORWARD -p icmp --icmp-type time-exceeded -j ACCEPT
+iptables -A FORWARD -p icmp --icmp-type destination-unreachable -j ACCEPT
+```
+
 ## Monitoring
 
 ### Health Check

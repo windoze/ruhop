@@ -54,12 +54,13 @@ with port hopping capabilities for traffic obfuscation.
 """
 
 [package.metadata.packager.deb]
-depends = ["systemd", "iptables", "iproute2", "kmod"]
+depends = ["systemd", "iptables", "iproute2"]
 section = "net"
 priority = "optional"
 
 [package.metadata.packager.deb.files]
-"../packaging/linux/ruhop.service" = "/lib/systemd/system/ruhop.service"
+"../packaging/linux/ruhop-client.service" = "/lib/systemd/system/ruhop-client.service"
+"../packaging/linux/ruhop-server.service" = "/lib/systemd/system/ruhop-server.service"
 "../packaging/linux/ruhop.toml.example" = "/etc/ruhop/ruhop.toml.example"
 
 [package.metadata.packager.wix]

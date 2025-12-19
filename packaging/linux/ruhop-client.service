@@ -1,6 +1,6 @@
 [Unit]
 Description=Ruhop VPN Client
-Documentation=https://github.com/user/ruhop
+Documentation=https://github.com/windoze/ruhop
 After=network-online.target
 Wants=network-online.target
 

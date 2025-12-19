@@ -206,6 +206,10 @@ reconnect_delay = 5
 # Script to run when VPN disconnects (optional)
 # Arguments: <local_ip> <netmask> <tun_device> <dns_servers>
 # on_disconnect = "/path/to/disconnect-script.sh"
+
+# Enable MSS clamping for TCP traffic (Linux only, default: false)
+# Useful when the VPN client acts as a NAT gateway for other devices
+# mss_fix = true
 "#
         .to_string()
     }
@@ -552,6 +556,18 @@ pub struct ClientConfig {
     /// 4. DNS servers (comma-separated, may be empty)
     #[serde(default)]
     pub on_disconnect: Option<String>,
+
+    /// Enable MSS clamping for TCP traffic through the VPN tunnel
+    ///
+    /// When enabled, automatically adds iptables rules to clamp TCP MSS
+    /// to prevent fragmentation issues with VPN traffic. This is useful
+    /// when the VPN client acts as a NAT gateway for other devices.
+    ///
+    /// **Linux only** - this option is ignored on other platforms.
+    ///
+    /// Default: false
+    #[serde(default)]
+    pub mss_fix: bool,
 }
 
 impl ClientConfig {

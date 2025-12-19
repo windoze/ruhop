@@ -1153,7 +1153,81 @@ impl VpnEngine {
             .await;
         }
 
+        // Setup MSS clamping if enabled (Linux only)
+        #[cfg(target_os = "linux")]
+        if client_config.mss_fix {
+            self.setup_mss_clamping(tun_name).await;
+        }
+
         Ok(())
+    }
+
+    /// Setup MSS clamping for TCP traffic through the TUN interface (Linux only)
+    ///
+    /// This adds iptables mangle rules to clamp TCP MSS to PMTU, which prevents
+    /// fragmentation issues when the VPN client acts as a NAT gateway.
+    #[cfg(target_os = "linux")]
+    async fn setup_mss_clamping(&self, tun_name: &str) {
+        use std::process::Command;
+
+        // Add MSS clamping rule for outbound TCP SYN packets
+        let result = Command::new("iptables")
+            .args([
+                "-t", "mangle",
+                "-A", "FORWARD",
+                "-o", tun_name,
+                "-p", "tcp",
+                "--tcp-flags", "SYN,RST", "SYN",
+                "-j", "TCPMSS",
+                "--clamp-mss-to-pmtu",
+            ])
+            .output();
+
+        match result {
+            Ok(output) if output.status.success() => {
+                self.log(
+                    LogLevel::Info,
+                    format!("Added MSS clamping rule for {}", tun_name),
+                )
+                .await;
+            }
+            Ok(output) => {
+                self.log(
+                    LogLevel::Warning,
+                    format!(
+                        "Failed to add MSS clamping rule: {}",
+                        String::from_utf8_lossy(&output.stderr)
+                    ),
+                )
+                .await;
+            }
+            Err(e) => {
+                self.log(
+                    LogLevel::Warning,
+                    format!("Failed to run iptables for MSS clamping: {}", e),
+                )
+                .await;
+            }
+        }
+    }
+
+    /// Remove MSS clamping rules (Linux only)
+    #[cfg(target_os = "linux")]
+    fn cleanup_mss_clamping(tun_name: &str) {
+        use std::process::Command;
+
+        // Remove MSS clamping rule
+        let _ = Command::new("iptables")
+            .args([
+                "-t", "mangle",
+                "-D", "FORWARD",
+                "-o", tun_name,
+                "-p", "tcp",
+                "--tcp-flags", "SYN,RST", "SYN",
+                "-j", "TCPMSS",
+                "--clamp-mss-to-pmtu",
+            ])
+            .output();
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -1230,6 +1304,12 @@ impl VpnEngine {
             if let Ok(route2) = Route::ipv4(Ipv4Addr::new(128, 0, 0, 0), 1, Some(tun_gateway)) {
                 let _ = route_manager.delete(&route2.with_interface(tun_name)).await;
             }
+        }
+
+        // Cleanup MSS clamping if it was enabled (Linux only)
+        #[cfg(target_os = "linux")]
+        if client_config.mss_fix {
+            Self::cleanup_mss_clamping(tun_name);
         }
     }
 
