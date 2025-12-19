@@ -210,6 +210,15 @@ reconnect_delay = 5
 # Enable MSS clamping for TCP traffic (Linux only, default: false)
 # Useful when the VPN client acts as a NAT gateway for other devices
 # mss_fix = true
+
+# Path loss detection (optional)
+# When enabled, the client probes each server address to detect blocked paths
+# Addresses with high packet loss are temporarily blacklisted
+# [client.probe]
+# interval = 10            # Seconds between probes to each address
+# threshold = 0.5          # Loss rate threshold for blacklisting (0.0-1.0)
+# blacklist_duration = 300 # Seconds to keep address blacklisted
+# min_probes = 3           # Minimum probes before blacklist decision
 "#
         .to_string()
     }
@@ -568,6 +577,48 @@ pub struct ClientConfig {
     /// Default: false
     #[serde(default)]
     pub mss_fix: bool,
+
+    /// Path loss detection configuration
+    ///
+    /// When enabled, the client probes each server address to detect
+    /// blocked or lossy network paths. Addresses with high packet loss
+    /// are temporarily blacklisted.
+    ///
+    /// Default: disabled
+    #[serde(default)]
+    pub probe: Option<ProbeConfig>,
+}
+
+/// Configuration for path loss detection probing
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProbeConfig {
+    /// Interval between probes to each address in seconds
+    ///
+    /// Lower values detect blocked paths faster but generate more traffic.
+    /// Default: 10 seconds
+    #[serde(default = "default_probe_interval")]
+    pub interval: u64,
+
+    /// Loss rate threshold for blacklisting (0.0 - 1.0)
+    ///
+    /// Addresses with loss rate >= threshold will be blacklisted.
+    /// Default: 0.5 (50% loss)
+    #[serde(default = "default_probe_threshold")]
+    pub threshold: f32,
+
+    /// Duration to keep an address blacklisted in seconds
+    ///
+    /// After this duration, the address will be probed again.
+    /// Default: 300 seconds (5 minutes)
+    #[serde(default = "default_probe_blacklist_duration")]
+    pub blacklist_duration: u64,
+
+    /// Minimum probes before making blacklist decision
+    ///
+    /// Prevents false positives from single dropped packets.
+    /// Default: 3
+    #[serde(default = "default_probe_min_probes")]
+    pub min_probes: u32,
 }
 
 impl ClientConfig {
@@ -693,6 +744,22 @@ fn default_max_clients() -> usize {
 
 fn default_true() -> bool {
     true
+}
+
+fn default_probe_interval() -> u64 {
+    10
+}
+
+fn default_probe_threshold() -> f32 {
+    0.5
+}
+
+fn default_probe_blacklist_duration() -> u64 {
+    300
+}
+
+fn default_probe_min_probes() -> u32 {
+    3
 }
 
 fn default_reconnect_delay() -> u64 {

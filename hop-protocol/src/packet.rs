@@ -139,6 +139,26 @@ impl PacketHeader {
         }
     }
 
+    /// Create a probe request header
+    pub fn probe(seq: u32, sid: u32) -> Self {
+        Self {
+            flag: Flags::probe(),
+            seq,
+            sid,
+            ..Default::default()
+        }
+    }
+
+    /// Create a probe ack header
+    pub fn probe_ack(seq: u32, sid: u32) -> Self {
+        Self {
+            flag: Flags::probe().with_ack(),
+            seq,
+            sid,
+            ..Default::default()
+        }
+    }
+
     /// Encode header to bytes
     pub fn encode(&self) -> [u8; HOP_HDR_LEN] {
         let mut buf = [0u8; HOP_HDR_LEN];
@@ -312,6 +332,40 @@ impl Packet {
     /// Create a finish ack packet
     pub fn finish_ack(sid: u32) -> Self {
         Self::new(PacketHeader::finish_ack(sid), Vec::new())
+    }
+
+    /// Create a probe request packet
+    /// Payload contains timestamp_ms (u64) for RTT measurement
+    pub fn probe_request(probe_id: u32, sid: u32, timestamp_ms: u64) -> Self {
+        Self::new(
+            PacketHeader::probe(probe_id, sid),
+            timestamp_ms.to_be_bytes().to_vec(),
+        )
+    }
+
+    /// Create a probe response packet (echoes back the timestamp)
+    pub fn probe_response(probe_id: u32, sid: u32, timestamp_ms: u64) -> Self {
+        Self::new(
+            PacketHeader::probe_ack(probe_id, sid),
+            timestamp_ms.to_be_bytes().to_vec(),
+        )
+    }
+
+    /// Parse probe packet payload to extract timestamp
+    pub fn parse_probe_timestamp(&self) -> Result<u64> {
+        if self.payload.len() < 8 {
+            return Err(Error::InvalidPacket);
+        }
+        Ok(u64::from_be_bytes([
+            self.payload[0],
+            self.payload[1],
+            self.payload[2],
+            self.payload[3],
+            self.payload[4],
+            self.payload[5],
+            self.payload[6],
+            self.payload[7],
+        ]))
     }
 
     /// Encode packet to bytes (without encryption)

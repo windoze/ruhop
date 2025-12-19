@@ -695,6 +695,28 @@ impl VpnEngine {
                                         }
                                     }
                                 }
+                            } else if flags.is_probe() && !flags.is_ack() {
+                                // Probe request from client - echo back probe response
+                                // This allows client to detect blocked paths
+                                let sessions = sessions_write.read().await;
+                                if sessions.contains_key(&sid) {
+                                    // Echo probe response with same probe_id and timestamp
+                                    let probe_id = packet.header.seq;
+                                    let timestamp = packet
+                                        .parse_probe_timestamp()
+                                        .unwrap_or(0);
+                                    let response =
+                                        Packet::probe_response(probe_id, sid, timestamp);
+                                    if let Ok(encrypted) = cipher_decrypt.encrypt(&response, 0) {
+                                        // Reply via same socket for NAT traversal
+                                        if let Err(e) = socket_read
+                                            .send_to_from(&encrypted, peer_addr, local_addr)
+                                            .await
+                                        {
+                                            log::debug!("Failed to send probe response: {}", e);
+                                        }
+                                    }
+                                }
                             }
                         }
                         Err(e) => {
@@ -1324,14 +1346,69 @@ impl VpnEngine {
         shutdown_tx: broadcast::Sender<()>,
         shared_stats: SharedStatsRef,
     ) -> Result<()> {
+        use crate::addr_stats::AddrStatsTracker;
+        use std::time::{SystemTime, UNIX_EPOCH};
+
         let mut shutdown_rx = shutdown_tx.subscribe();
         let sid = session.id.value();
+
+        // Get probe config (if enabled)
+        let probe_config = self
+            .config
+            .client
+            .as_ref()
+            .and_then(|c| c.probe.as_ref());
 
         // Sequence number counter
         let seq = Arc::new(std::sync::atomic::AtomicU32::new(0));
 
         // Server addresses for port hopping
-        let server_addrs = Arc::new(server_addrs);
+        let server_addrs = Arc::new(server_addrs.clone());
+
+        // Address statistics tracker for loss detection (only if probing enabled)
+        let addr_tracker: Option<Arc<RwLock<AddrStatsTracker>>> = if let Some(cfg) = probe_config {
+            let tracker = Arc::new(RwLock::new(AddrStatsTracker::new(
+                server_addrs.to_vec(),
+                Duration::from_secs(cfg.interval),
+                cfg.threshold,
+                Duration::from_secs(cfg.blacklist_duration),
+                cfg.min_probes,
+            )));
+
+            // Set up blacklist callback for events
+            let event_handler_bl = self.event_handler.clone();
+            let blacklist_duration = cfg.blacklist_duration;
+            {
+                let mut t = tracker.write().await;
+                t.set_blacklist_callback(Box::new(move |addr, is_blacklisted, loss_rate| {
+                    let handler = event_handler_bl.clone();
+                    let event = if is_blacklisted {
+                        VpnEvent::AddressBlacklisted {
+                            addr,
+                            loss_rate,
+                            duration_secs: blacklist_duration,
+                        }
+                    } else {
+                        VpnEvent::AddressRecovered { addr }
+                    };
+                    // Fire-and-forget event emission
+                    tokio::spawn(async move {
+                        handler.on_event(event).await;
+                    });
+                }));
+            }
+
+            log::info!(
+                "Path loss detection enabled: interval={}s, threshold={:.0}%, blacklist={}s",
+                cfg.interval,
+                cfg.threshold * 100.0,
+                cfg.blacklist_duration
+            );
+
+            Some(tracker)
+        } else {
+            None
+        };
 
         // Spawn TUN -> UDP task
         let tun_read = tun.clone();
@@ -1340,6 +1417,7 @@ impl VpnEngine {
         let stats_tun = shared_stats.clone();
         let seq_tun = seq.clone();
         let server_addrs_tun = server_addrs.clone();
+        let addr_tracker_tun = addr_tracker.clone();
 
         let tun_to_udp = tokio::spawn(async move {
             let mut buf = vec![0u8; 2000];
@@ -1351,11 +1429,28 @@ impl VpnEngine {
 
                         match cipher_encrypt.encrypt(&packet, 0) {
                             Ok(encrypted) => {
-                                // Port hopping: select random server address
-                                let target_addr = server_addrs_tun
-                                    .choose(&mut rand::rng())
-                                    .copied()
-                                    .unwrap_or(server_addrs_tun[0]);
+                                // Port hopping: prefer available (non-blacklisted) addresses if probing enabled
+                                let target_addr = if let Some(ref tracker) = addr_tracker_tun {
+                                    let available = tracker.read().await.available_addrs();
+                                    if available.is_empty() {
+                                        // Fallback to any address if all are blacklisted
+                                        server_addrs_tun
+                                            .choose(&mut rand::rng())
+                                            .copied()
+                                            .unwrap_or(server_addrs_tun[0])
+                                    } else {
+                                        available
+                                            .choose(&mut rand::rng())
+                                            .copied()
+                                            .unwrap_or(available[0])
+                                    }
+                                } else {
+                                    // No probing - use random address
+                                    server_addrs_tun
+                                        .choose(&mut rand::rng())
+                                        .copied()
+                                        .unwrap_or(server_addrs_tun[0])
+                                };
 
                                 if let Err(e) = socket_write.send_to(&encrypted, target_addr).await {
                                     log::error!("UDP send error: {}", e);
@@ -1384,6 +1479,7 @@ impl VpnEngine {
         let socket_read = socket.clone();
         let cipher_decrypt = cipher.clone();
         let stats_udp = shared_stats.clone();
+        let addr_tracker_udp = addr_tracker.clone();
 
         let udp_to_tun = tokio::spawn(async move {
             let mut buf = vec![0u8; 2000];
@@ -1408,6 +1504,26 @@ impl VpnEngine {
                         } else if packet.header.flag.is_push() && packet.header.flag.is_ack() {
                             // Heartbeat response - connection is alive
                             log::debug!("Received heartbeat response");
+                        } else if packet.header.flag.is_probe_ack() {
+                            // Probe response - record for loss detection (only if probing enabled)
+                            if let Some(ref tracker) = addr_tracker_udp {
+                                let probe_id = packet.header.seq;
+                                let now_ms = SystemTime::now()
+                                    .duration_since(UNIX_EPOCH)
+                                    .unwrap_or_default()
+                                    .as_millis() as u64;
+                                let sent_ms = packet.parse_probe_timestamp().unwrap_or(now_ms);
+                                let rtt = Duration::from_millis(now_ms.saturating_sub(sent_ms));
+
+                                let mut t = tracker.write().await;
+                                t.record_probe_received(probe_id, rtt);
+                                t.update_all_blacklist_status();
+                                log::debug!(
+                                    "Probe response: id={}, rtt={}ms",
+                                    probe_id,
+                                    rtt.as_millis()
+                                );
+                            }
                         }
                     }
                     Err(e) => {
@@ -1441,6 +1557,60 @@ impl VpnEngine {
             }
         });
 
+        // Spawn probe task for loss detection (only if probing enabled)
+        let probe_task = if let Some(tracker) = addr_tracker.clone() {
+            let socket_probe = socket.clone();
+            let cipher_probe = cipher.clone();
+
+            Some(tokio::spawn(async move {
+                let mut probe_id: u32 = 0;
+                // Check for probe targets every 500ms
+                // The tracker internally manages per-address intervals
+                let mut ticker = interval(Duration::from_millis(500));
+
+                loop {
+                    ticker.tick().await;
+
+                    // Get next address that needs probing
+                    let target = {
+                        let mut t = tracker.write().await;
+                        t.next_probe_target()
+                    };
+
+                    if let Some(target_addr) = target {
+                        let timestamp_ms = SystemTime::now()
+                            .duration_since(UNIX_EPOCH)
+                            .unwrap_or_default()
+                            .as_millis() as u64;
+
+                        let probe = Packet::probe_request(probe_id, sid, timestamp_ms);
+
+                        // Record that we sent a probe
+                        {
+                            let mut t = tracker.write().await;
+                            t.record_probe_sent(target_addr, probe_id);
+                        }
+
+                        if let Ok(encrypted) = cipher_probe.encrypt(&probe, 0) {
+                            // Send to specific target (not random)
+                            let _ = socket_probe.send_to(&encrypted, target_addr).await;
+                            log::trace!("Sent probe {} to {}", probe_id, target_addr);
+                        }
+
+                        probe_id = probe_id.wrapping_add(1);
+                    }
+
+                    // Periodically update blacklist status for timeouts
+                    {
+                        let mut t = tracker.write().await;
+                        t.update_all_blacklist_status();
+                    }
+                }
+            }))
+        } else {
+            None
+        };
+
         // Wait for shutdown or error
         tokio::select! {
             _ = shutdown_rx.recv() => {
@@ -1465,6 +1635,9 @@ impl VpnEngine {
         }
 
         heartbeat.abort();
+        if let Some(task) = probe_task {
+            task.abort();
+        }
 
         self.emit_event(VpnEvent::Disconnected {
             reason: "Client stopped".to_string(),

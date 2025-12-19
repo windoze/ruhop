@@ -12,6 +12,8 @@ pub mod consts {
     pub const HOP_FLG_HSH: u8 = 0x40;
     /// Finish session
     pub const HOP_FLG_FIN: u8 = 0x20;
+    /// Probe packet (for loss detection)
+    pub const HOP_FLG_PRB: u8 = 0x10;
     /// More fragments follow
     pub const HOP_FLG_MFR: u8 = 0x08;
     /// Acknowledgment
@@ -48,9 +50,19 @@ impl Flags {
         Self(consts::HOP_FLG_FIN)
     }
 
+    /// Probe packet (for loss detection)
+    pub const fn probe() -> Self {
+        Self(consts::HOP_FLG_PRB)
+    }
+
     /// Check if this is a data packet (no control flags set)
     pub const fn is_data(&self) -> bool {
-        self.0 & (consts::HOP_FLG_PSH | consts::HOP_FLG_HSH | consts::HOP_FLG_FIN) == 0
+        self.0
+            & (consts::HOP_FLG_PSH
+                | consts::HOP_FLG_HSH
+                | consts::HOP_FLG_FIN
+                | consts::HOP_FLG_PRB)
+            == 0
     }
 
     /// Check if PSH (push/knock/heartbeat) flag is set
@@ -66,6 +78,11 @@ impl Flags {
     /// Check if FIN (finish) flag is set
     pub const fn is_finish(&self) -> bool {
         self.0 & consts::HOP_FLG_FIN != 0
+    }
+
+    /// Check if PRB (probe) flag is set
+    pub const fn is_probe(&self) -> bool {
+        self.0 & consts::HOP_FLG_PRB != 0
     }
 
     /// Check if MFR (more fragments) flag is set
@@ -117,6 +134,11 @@ impl Flags {
     pub const fn is_push_ack(&self) -> bool {
         self.is_push() && self.is_ack()
     }
+
+    /// Check if this is a probe acknowledgment (PRB | ACK)
+    pub const fn is_probe_ack(&self) -> bool {
+        self.is_probe() && self.is_ack()
+    }
 }
 
 impl From<u8> for Flags {
@@ -143,6 +165,9 @@ impl fmt::Debug for Flags {
         }
         if self.is_finish() {
             parts.push("FIN");
+        }
+        if self.is_probe() {
+            parts.push("PRB");
         }
         if self.is_more_fragments() {
             parts.push("MFR");

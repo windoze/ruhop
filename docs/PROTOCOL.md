@@ -73,6 +73,7 @@ Flags can be combined using bitwise OR:
 | HOP_FLG_PSH | 0x80 | Port knock / Heartbeat |
 | HOP_FLG_HSH | 0x40 | Handshake |
 | HOP_FLG_FIN | 0x20 | Finish session |
+| HOP_FLG_PRB | 0x10 | Probe (for path loss detection) |
 | HOP_FLG_MFR | 0x08 | More fragments follow |
 | HOP_FLG_ACK | 0x04 | Acknowledgment |
 
@@ -86,6 +87,8 @@ Common flag combinations:
 - `0x60` (HOP_FLG_HSH | HOP_FLG_FIN): Handshake error/rejection
 - `0x20` (HOP_FLG_FIN): Finish session request
 - `0x24` (HOP_FLG_FIN | HOP_FLG_ACK): Finish acknowledgment
+- `0x10` (HOP_FLG_PRB): Probe request (client → server)
+- `0x14` (HOP_FLG_PRB | HOP_FLG_ACK): Probe response (server → client)
 
 ## Encryption
 
@@ -384,6 +387,69 @@ Payload: SID (4 bytes)
 - Server sends heartbeat every `PeerTimeout/2` seconds
 - Peer is kicked if no response within `PeerTimeout` seconds
 - Client sends periodic knocks as keep-alive (configurable `heartbeat-interval`)
+
+## Path Loss Detection (Optional)
+
+When enabled, the client probes each server address to detect blocked or lossy network paths. Addresses with high packet loss are temporarily blacklisted.
+
+### Probe Mechanism
+
+The client sends probe packets to each address in the pool in round-robin fashion:
+
+**Probe Request (Client -> Server):**
+```
+Flag: HOP_FLG_PRB (0x10)
+Seq: Probe ID (for correlation)
+Sid: Session ID
+Payload: timestamp_ms (8 bytes, big-endian) for RTT measurement
+```
+
+**Probe Response (Server -> Client):**
+```
+Flag: HOP_FLG_PRB | HOP_FLG_ACK (0x14)
+Seq: Probe ID (echoed)
+Sid: Session ID
+Payload: timestamp_ms (8 bytes, echoed from request)
+```
+
+### Loss Detection Flow
+
+```
+Client                                              Server
+   |                                                   |
+   |-- Probe (id=1) --> 203.0.113.1:4097 ------------>|
+   |<-- Probe ACK (id=1) -----------------------------|
+   |                                                   |
+   |-- Probe (id=2) --> 198.51.100.1:4099 ----------->|
+   |                    (no response - blocked)        |
+   |                                                   |
+   |-- Probe (id=3) --> 203.0.113.2:4096 ------------>|
+   |<-- Probe ACK (id=3) -----------------------------|
+   |                                                   |
+```
+
+### Blacklisting
+
+- Client tracks probes sent and responses received per address
+- After `min_probes` probes, if loss rate >= `threshold`, address is blacklisted
+- Blacklisted addresses are skipped when selecting targets for data packets
+- After `blacklist_duration`, address is re-probed and may recover
+
+### Configuration
+
+```toml
+[client.probe]
+interval = 10            # Probe each address every 10 seconds
+threshold = 0.5          # Blacklist if >= 50% loss
+blacklist_duration = 300 # Keep blacklisted for 5 minutes
+min_probes = 3           # Require 3 probes before deciding
+```
+
+### Benefits
+
+1. **Automatic failover**: Traffic avoids blocked ports/IPs
+2. **Self-healing**: Recovered paths are automatically re-enabled
+3. **Low overhead**: Small probe packets (24 bytes) sent infrequently
 
 ## Session Termination
 

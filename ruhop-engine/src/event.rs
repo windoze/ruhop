@@ -1,6 +1,6 @@
 //! VPN events and state management
 
-use std::net::IpAddr;
+use std::net::{IpAddr, SocketAddr};
 use std::time::{Duration, Instant};
 
 /// VPN connection state
@@ -184,6 +184,22 @@ pub enum VpnEvent {
         /// Message
         message: String,
     },
+
+    /// Address blacklisted due to high packet loss (client only)
+    AddressBlacklisted {
+        /// The blacklisted server address
+        addr: SocketAddr,
+        /// Current packet loss rate (0.0 - 1.0)
+        loss_rate: f32,
+        /// Duration in seconds the address will be blacklisted
+        duration_secs: u64,
+    },
+
+    /// Address recovered from blacklist (client only)
+    AddressRecovered {
+        /// The recovered server address
+        addr: SocketAddr,
+    },
 }
 
 /// Log levels for VPN events
@@ -276,6 +292,21 @@ impl EventHandler for LoggingEventHandler {
                 LogLevel::Warning => log::warn!("{}", message),
                 LogLevel::Error => log::error!("{}", message),
             },
+            VpnEvent::AddressBlacklisted {
+                addr,
+                loss_rate,
+                duration_secs,
+            } => {
+                log::warn!(
+                    "Address {} blacklisted (loss: {:.1}%, duration: {}s)",
+                    addr,
+                    loss_rate * 100.0,
+                    duration_secs
+                );
+            }
+            VpnEvent::AddressRecovered { addr } => {
+                log::info!("Address {} recovered from blacklist", addr);
+            }
         }
     }
 }

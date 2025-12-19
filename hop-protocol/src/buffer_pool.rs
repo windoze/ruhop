@@ -365,7 +365,7 @@ mod tests {
         // Create a very large buffer
         let mut buf = pool.get();
         buf.reserve(MAX_POOLABLE_SIZE + 1);
-        buf.extend(std::iter::repeat(0u8).take(MAX_POOLABLE_SIZE + 1));
+        buf.extend(std::iter::repeat_n(0u8, MAX_POOLABLE_SIZE + 1));
 
         let initial_len = pool.len();
         drop(buf);
@@ -495,7 +495,7 @@ mod tests {
 
                 // Get a buffer and fill it with thread-specific data
                 let mut buf = pool.get();
-                buf.extend(std::iter::repeat(thread_id as u8).take(1000));
+                buf.extend(std::iter::repeat_n(thread_id as u8, 1000));
 
                 // Wait for all threads to fill their buffers
                 barrier.wait();
