@@ -983,7 +983,7 @@ dependencies = [
 
 [[package]]
 name = "hop-protocol"
-version = "0.14.0"
+version = "0.15.0"
 dependencies = [
  "aes",
  "async-trait",
@@ -999,7 +999,7 @@ dependencies = [
 
 [[package]]
 name = "hop-tun"
-version = "0.14.0"
+version = "0.15.0"
 dependencies = [
  "async-std",
  "block2",
@@ -2220,7 +2220,7 @@ dependencies = [
 
 [[package]]
 name = "ruhop-cli"
-version = "0.14.0"
+version = "0.15.0"
 dependencies = [
  "anyhow",
  "base64",
@@ -2236,7 +2236,7 @@ dependencies = [
 
 [[package]]
 name = "ruhop-engine"
-version = "0.14.0"
+version = "0.15.0"
 dependencies = [
  "async-trait",
  "bytes",
