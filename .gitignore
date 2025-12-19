@@ -4,3 +4,4 @@ CLAUDE.*
 .DS_Store
 .vscode/
 ruhop.toml
+e2e/config.local.sh
