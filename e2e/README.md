@@ -82,4 +82,4 @@ Run a single test directly:
 - Each test uses a different tunnel network (10.99.X.0/24)
 - Tests clean up processes before and after execution
 - Test 03 (multi-homed) requires `SERVER_IP_2` to be configured
-- Test 05 (auto-reconnect) uses iptables rules to simulate network disruption
+- Test 05 (auto-reconnect) uses nftables (preferred) or iptables (fallback) rules to simulate network disruption

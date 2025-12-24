@@ -1186,10 +1186,90 @@ impl VpnEngine {
 
     /// Setup MSS clamping for TCP traffic through the TUN interface (Linux only)
     ///
-    /// This adds iptables mangle rules to clamp TCP MSS to PMTU, which prevents
+    /// This adds firewall mangle rules to clamp TCP MSS to PMTU, which prevents
     /// fragmentation issues when the VPN client acts as a NAT gateway.
+    /// Uses nftables if available, falls back to iptables.
     #[cfg(target_os = "linux")]
     async fn setup_mss_clamping(&self, tun_name: &str) {
+        use hop_tun::FirewallBackend;
+
+        match FirewallBackend::detect() {
+            FirewallBackend::Nftables => self.setup_mss_clamping_nftables(tun_name).await,
+            FirewallBackend::Iptables => self.setup_mss_clamping_iptables(tun_name).await,
+        }
+    }
+
+    #[cfg(target_os = "linux")]
+    async fn setup_mss_clamping_nftables(&self, tun_name: &str) {
+        use std::process::Command;
+        use std::io::Write;
+
+        const NFT_MSS_TABLE: &str = "ruhop_mss";
+
+        // Build nftables script for MSS clamping
+        let nft_script = format!(
+            r#"
+table ip {table} {{
+    chain forward {{
+        type filter hook forward priority mangle; policy accept;
+        oifname "{tun}" tcp flags syn / syn,rst tcp option maxseg size set rt mtu
+    }}
+}}
+"#,
+            table = NFT_MSS_TABLE,
+            tun = tun_name,
+        );
+
+        // First, delete existing table if present (ignore errors)
+        let _ = Command::new("nft")
+            .args(["delete", "table", "ip", NFT_MSS_TABLE])
+            .output();
+
+        // Apply the new ruleset
+        let result = Command::new("nft")
+            .arg("-f")
+            .arg("-")
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .spawn()
+            .and_then(|mut child| {
+                if let Some(ref mut stdin) = child.stdin {
+                    stdin.write_all(nft_script.as_bytes())?;
+                }
+                child.wait_with_output()
+            });
+
+        match result {
+            Ok(output) if output.status.success() => {
+                self.log(
+                    LogLevel::Info,
+                    format!("Added MSS clamping rule for {} (nftables)", tun_name),
+                )
+                .await;
+            }
+            Ok(output) => {
+                self.log(
+                    LogLevel::Warning,
+                    format!(
+                        "Failed to add MSS clamping rule (nftables): {}",
+                        String::from_utf8_lossy(&output.stderr)
+                    ),
+                )
+                .await;
+            }
+            Err(e) => {
+                self.log(
+                    LogLevel::Warning,
+                    format!("Failed to run nft for MSS clamping: {}", e),
+                )
+                .await;
+            }
+        }
+    }
+
+    #[cfg(target_os = "linux")]
+    async fn setup_mss_clamping_iptables(&self, tun_name: &str) {
         use std::process::Command;
 
         // Add MSS clamping rule for outbound TCP SYN packets
@@ -1209,7 +1289,7 @@ impl VpnEngine {
             Ok(output) if output.status.success() => {
                 self.log(
                     LogLevel::Info,
-                    format!("Added MSS clamping rule for {}", tun_name),
+                    format!("Added MSS clamping rule for {} (iptables)", tun_name),
                 )
                 .await;
             }
@@ -1217,7 +1297,7 @@ impl VpnEngine {
                 self.log(
                     LogLevel::Warning,
                     format!(
-                        "Failed to add MSS clamping rule: {}",
+                        "Failed to add MSS clamping rule (iptables): {}",
                         String::from_utf8_lossy(&output.stderr)
                     ),
                 )
@@ -1236,6 +1316,28 @@ impl VpnEngine {
     /// Remove MSS clamping rules (Linux only)
     #[cfg(target_os = "linux")]
     fn cleanup_mss_clamping(tun_name: &str) {
+        use hop_tun::FirewallBackend;
+
+        match FirewallBackend::detect() {
+            FirewallBackend::Nftables => Self::cleanup_mss_clamping_nftables(),
+            FirewallBackend::Iptables => Self::cleanup_mss_clamping_iptables(tun_name),
+        }
+    }
+
+    #[cfg(target_os = "linux")]
+    fn cleanup_mss_clamping_nftables() {
+        use std::process::Command;
+
+        const NFT_MSS_TABLE: &str = "ruhop_mss";
+
+        // Delete the MSS clamping table
+        let _ = Command::new("nft")
+            .args(["delete", "table", "ip", NFT_MSS_TABLE])
+            .output();
+    }
+
+    #[cfg(target_os = "linux")]
+    fn cleanup_mss_clamping_iptables(tun_name: &str) {
         use std::process::Command;
 
         // Remove MSS clamping rule

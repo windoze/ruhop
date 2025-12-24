@@ -1,6 +1,6 @@
 #!/bin/bash
 # Test 5: Auto-Reconnection
-# Tests: Client reconnects after network disruption (using iptables to block/restore traffic)
+# Tests: Client reconnects after network disruption (using nftables/iptables to block/restore traffic)
 
 set -e
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -17,21 +17,45 @@ cleanup_all
 PORT_START=52400
 PORT_END=52410
 
-# Function to block VPN traffic using iptables on the client
+# Detect firewall backend on client (nftables preferred, iptables fallback)
+detect_firewall_backend() {
+    if ssh $CLIENT_HOST "command -v nft" &>/dev/null; then
+        echo "nftables"
+    else
+        echo "iptables"
+    fi
+}
+
+FW_BACKEND=$(detect_firewall_backend)
+log_info "Using firewall backend: $FW_BACKEND"
+
+# Function to block VPN traffic on the client
 # Note: Only block INPUT (receiving) to simulate packet loss without immediate send errors
 # Blocking OUTPUT causes "Operation not permitted" which crashes the TUN task
 block_vpn_traffic() {
-    log_info "Blocking VPN traffic with iptables (INPUT only)..."
-    ssh $CLIENT_HOST "sudo iptables -A INPUT -s $SERVER_IP_1 -p udp --sport $PORT_START:$PORT_END -j DROP"
+    if [ "$FW_BACKEND" = "nftables" ]; then
+        log_info "Blocking VPN traffic with nftables (INPUT only)..."
+        ssh $CLIENT_HOST "sudo nft add table ip ruhop_test 2>/dev/null || true"
+        ssh $CLIENT_HOST "sudo nft add chain ip ruhop_test input '{ type filter hook input priority filter; policy accept; }' 2>/dev/null || true"
+        ssh $CLIENT_HOST "sudo nft add rule ip ruhop_test input ip saddr $SERVER_IP_1 udp sport $PORT_START-$PORT_END drop"
+    else
+        log_info "Blocking VPN traffic with iptables (INPUT only)..."
+        ssh $CLIENT_HOST "sudo iptables -A INPUT -s $SERVER_IP_1 -p udp --sport $PORT_START:$PORT_END -j DROP"
+    fi
 }
 
 # Function to restore VPN traffic
 restore_vpn_traffic() {
-    log_info "Restoring VPN traffic (removing iptables rules)..."
-    ssh $CLIENT_HOST "sudo iptables -D INPUT -s $SERVER_IP_1 -p udp --sport $PORT_START:$PORT_END -j DROP" 2>/dev/null || true
+    if [ "$FW_BACKEND" = "nftables" ]; then
+        log_info "Restoring VPN traffic (removing nftables rules)..."
+        ssh $CLIENT_HOST "sudo nft delete table ip ruhop_test" 2>/dev/null || true
+    else
+        log_info "Restoring VPN traffic (removing iptables rules)..."
+        ssh $CLIENT_HOST "sudo iptables -D INPUT -s $SERVER_IP_1 -p udp --sport $PORT_START:$PORT_END -j DROP" 2>/dev/null || true
+    fi
 }
 
-# Make sure iptables rules are clean at start
+# Make sure firewall rules are clean at start
 restore_vpn_traffic
 
 # Generate server config

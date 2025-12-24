@@ -5,7 +5,7 @@
 //!
 //! # Platform Support
 //!
-//! - **Linux**: Uses iptables/nftables for NAT configuration
+//! - **Linux**: Uses nftables (preferred) or iptables (fallback) for NAT configuration
 //! - **macOS**: Uses pf (Packet Filter) for NAT
 //! - **Windows**: Uses Windows Firewall/NAT APIs
 //!
@@ -16,8 +16,44 @@
 
 use std::net::IpAddr;
 use std::process::Command;
+#[cfg(target_os = "linux")]
+use std::sync::OnceLock;
 
 use crate::error::{Error, Result};
+
+/// Firewall backend for Linux systems
+#[cfg(target_os = "linux")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FirewallBackend {
+    /// nftables (modern, preferred)
+    Nftables,
+    /// iptables (legacy fallback)
+    Iptables,
+}
+
+#[cfg(target_os = "linux")]
+impl FirewallBackend {
+    /// Detect the best available firewall backend
+    pub fn detect() -> Self {
+        static BACKEND: OnceLock<FirewallBackend> = OnceLock::new();
+        *BACKEND.get_or_init(|| {
+            // Check if nft command is available and working
+            if let Ok(output) = Command::new("nft").arg("--version").output() {
+                if output.status.success() {
+                    log::info!("Using nftables backend for firewall rules");
+                    return FirewallBackend::Nftables;
+                }
+            }
+            // Fallback to iptables
+            log::info!("Using iptables backend for firewall rules (nft not available)");
+            FirewallBackend::Iptables
+        })
+    }
+}
+
+/// The nftables table name used for ruhop NAT rules
+#[cfg(target_os = "linux")]
+const NFT_TABLE_NAME: &str = "ruhop";
 
 /// NAT rule configuration
 #[derive(Debug, Clone)]
@@ -203,6 +239,85 @@ impl NatManager {
 
     #[cfg(target_os = "linux")]
     fn add_rule_linux(&self, rule: &NatRule) -> Result<()> {
+        match FirewallBackend::detect() {
+            FirewallBackend::Nftables => self.add_rule_nftables(rule),
+            FirewallBackend::Iptables => self.add_rule_iptables(rule),
+        }
+    }
+
+    #[cfg(target_os = "linux")]
+    fn add_rule_nftables(&self, rule: &NatRule) -> Result<()> {
+        // Create the ruhop table and chains if they don't exist
+        // Using 'nft -f -' to execute multiple commands atomically
+        let nat_action = if rule.use_snat {
+            if let Some(ref addr) = rule.snat_address {
+                format!("snat to {}", addr)
+            } else {
+                return Err(Error::Nat("SNAT requires an address".into()));
+            }
+        } else {
+            "masquerade".to_string()
+        };
+
+        // Build nftables script
+        let nft_script = format!(
+            r#"
+table ip {table} {{
+    chain postrouting {{
+        type nat hook postrouting priority srcnat; policy accept;
+        ip saddr {source} oifname "{oif}" {action}
+    }}
+    chain forward {{
+        type filter hook forward priority filter; policy accept;
+        ip saddr {source} oifname "{oif}" accept
+        ip daddr {source} ct state related,established accept
+    }}
+}}
+"#,
+            table = NFT_TABLE_NAME,
+            source = rule.source,
+            oif = rule.out_interface,
+            action = nat_action,
+        );
+
+        // First, delete existing table if present (ignore errors)
+        let _ = Command::new("nft")
+            .args(["delete", "table", "ip", NFT_TABLE_NAME])
+            .output();
+
+        // Apply the new ruleset
+        let mut child = Command::new("nft")
+            .arg("-f")
+            .arg("-")
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .spawn()
+            .map_err(|e| Error::Nat(format!("failed to run nft: {}", e)))?;
+
+        use std::io::Write;
+        if let Some(ref mut stdin) = child.stdin {
+            stdin
+                .write_all(nft_script.as_bytes())
+                .map_err(|e| Error::Nat(format!("failed to write nft script: {}", e)))?;
+        }
+
+        let output = child
+            .wait_with_output()
+            .map_err(|e| Error::Nat(format!("failed to run nft: {}", e)))?;
+
+        if !output.status.success() {
+            return Err(Error::Nat(format!(
+                "nft failed: {}",
+                String::from_utf8_lossy(&output.stderr)
+            )));
+        }
+
+        Ok(())
+    }
+
+    #[cfg(target_os = "linux")]
+    fn add_rule_iptables(&self, rule: &NatRule) -> Result<()> {
         let mut args = vec![
             "-t", "nat",
             "-A", "POSTROUTING",
@@ -357,6 +472,23 @@ impl NatManager {
 
     #[cfg(target_os = "linux")]
     fn remove_rule_linux(&self, rule: &NatRule) -> Result<()> {
+        match FirewallBackend::detect() {
+            FirewallBackend::Nftables => self.remove_rule_nftables(rule),
+            FirewallBackend::Iptables => self.remove_rule_iptables(rule),
+        }
+    }
+
+    #[cfg(target_os = "linux")]
+    fn remove_rule_nftables(&self, _rule: &NatRule) -> Result<()> {
+        // Simply delete the entire ruhop table
+        let _ = Command::new("nft")
+            .args(["delete", "table", "ip", NFT_TABLE_NAME])
+            .output();
+        Ok(())
+    }
+
+    #[cfg(target_os = "linux")]
+    fn remove_rule_iptables(&self, rule: &NatRule) -> Result<()> {
         let mut args = vec![
             "-t", "nat",
             "-D", "POSTROUTING",
