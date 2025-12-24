@@ -11,7 +11,7 @@ A Rust implementation of the GoHop VPN protocol - a UDP-based VPN with port hopp
 - **Port Hopping**: Server listens on all ports in range; client sends to random ports for traffic obfuscation
 - **Multi-Address Server**: Client supports connecting to servers with multiple IP addresses
 - **AES-256-CBC Encryption**: Secure encryption with Snappy compression
-- **IPv4 and IPv6 Support**: Full dual-stack capability
+- **IPv4 and IPv6 Support**: Full dual-stack capability (WIP)
 - **Cross-Platform**: Works on Linux, macOS, and Windows (including Windows Service support)
 - **Auto-Reconnect**: Automatic reconnection on connection loss
 - **NAT Support**: Built-in NAT/masquerading for server mode
