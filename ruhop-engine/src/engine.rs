@@ -19,7 +19,7 @@ use hop_protocol::{
     SessionState,
 };
 use crate::dns::{DnsClient, DnsProxy};
-use hop_tun::{Route, RouteManager, TunConfig, TunDevice};
+use hop_tun::{NatManager, Route, RouteManager, TunConfig, TunDevice};
 
 use crate::config::{ClientConfig, CommonConfig, Config, ServerConfig};
 use crate::control::{ControlServer, ControlState, SharedStats, SharedStatsRef, DEFAULT_SOCKET_PATH};
@@ -350,9 +350,11 @@ impl VpnEngine {
         self.setup_server_routes(&route_manager, server_config, &tun_name).await?;
 
         // Setup NAT if enabled
-        if server_config.enable_nat {
-            self.setup_nat(server_config).await?;
-        }
+        let nat_manager = if server_config.enable_nat {
+            self.setup_nat(server_config).await?
+        } else {
+            None
+        };
 
         // Start DNS proxy if configured
         let dns_servers_for_handshake = self.setup_dns_proxy(server_config, tunnel_ip, shutdown_tx.clone()).await?;
@@ -380,6 +382,13 @@ impl VpnEngine {
 
         // Cleanup routes
         self.cleanup_server_routes(&route_manager, server_config, &tun_name).await;
+
+        // Cleanup NAT (NatManager handles cleanup in Drop, but explicit cleanup is cleaner)
+        if let Some(mut nat) = nat_manager {
+            if let Err(e) = nat.cleanup() {
+                self.log(LogLevel::Warning, format!("NAT cleanup error: {}", e)).await;
+            }
+        }
 
         result
     }
@@ -412,11 +421,71 @@ impl VpnEngine {
         }
     }
 
-    async fn setup_nat(&self, _server_config: &ServerConfig) -> Result<()> {
-        // NAT setup is platform-specific and handled by hop_tun::NatManager
-        // For now, we just log that NAT should be enabled
-        self.log(LogLevel::Info, "NAT enabled (ensure iptables/pf rules are configured)").await;
-        Ok(())
+    async fn setup_nat(&self, server_config: &ServerConfig) -> Result<Option<NatManager>> {
+        #[cfg(target_os = "linux")]
+        {
+            use hop_tun::FirewallBackend;
+
+            // Detect the default outbound interface
+            let out_iface = Self::detect_default_interface().await?;
+
+            let backend = FirewallBackend::detect();
+            self.log(
+                LogLevel::Info,
+                format!("Setting up NAT using {:?} backend, outbound interface: {}", backend, out_iface),
+            )
+            .await;
+
+            let mut nat_manager = NatManager::new();
+
+            // Enable IP forwarding
+            nat_manager.enable_ip_forwarding()
+                .map_err(|e| Error::Config(format!("Failed to enable IP forwarding: {}", e)))?;
+
+            // Add masquerade rule for tunnel network
+            let rule = hop_tun::nat::NatRule::masquerade(&server_config.tunnel_network, &out_iface);
+            nat_manager.add_rule(&rule)
+                .map_err(|e| Error::Config(format!("Failed to add NAT rule: {}", e)))?;
+
+            self.log(
+                LogLevel::Info,
+                format!("NAT enabled: {} -> {} (masquerade)", server_config.tunnel_network, out_iface),
+            )
+            .await;
+
+            return Ok(Some(nat_manager));
+        }
+
+        #[cfg(not(target_os = "linux"))]
+        {
+            self.log(LogLevel::Info, "NAT enabled (ensure firewall rules are configured)").await;
+            Ok(None)
+        }
+    }
+
+    #[cfg(target_os = "linux")]
+    async fn detect_default_interface() -> Result<String> {
+        use tokio::process::Command;
+
+        let output = Command::new("ip")
+            .args(["route", "show", "default"])
+            .output()
+            .await
+            .map_err(|e| Error::Config(format!("Failed to run ip route: {}", e)))?;
+
+        if !output.status.success() {
+            return Err(Error::Config("Failed to get default route".into()));
+        }
+
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        // Parse "default via X.X.X.X dev ethX ..."
+        for part in stdout.split_whitespace().collect::<Vec<_>>().windows(2) {
+            if part[0] == "dev" {
+                return Ok(part[1].to_string());
+            }
+        }
+
+        Err(Error::Config("Could not determine default interface".into()))
     }
 
     /// Setup DNS proxy if configured and return DNS servers to push to clients
