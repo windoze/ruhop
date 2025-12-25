@@ -11,6 +11,57 @@ use std::str::FromStr;
 
 use crate::error::{Error, Result};
 
+/// Strategy for selecting upstream DNS servers
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum UpstreamStrategy {
+    /// Send query to all upstreams in parallel, use first successful response (default)
+    #[default]
+    FirstReply,
+
+    /// Select upstreams in round-robin order
+    RoundRobin,
+
+    /// Select a random upstream for each query
+    Random,
+}
+
+impl UpstreamStrategy {
+    /// Get a human-readable description of this strategy
+    pub fn description(&self) -> &'static str {
+        match self {
+            UpstreamStrategy::FirstReply => "first-reply (parallel queries)",
+            UpstreamStrategy::RoundRobin => "round-robin",
+            UpstreamStrategy::Random => "random",
+        }
+    }
+}
+
+impl std::fmt::Display for UpstreamStrategy {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            UpstreamStrategy::FirstReply => write!(f, "first-reply"),
+            UpstreamStrategy::RoundRobin => write!(f, "round-robin"),
+            UpstreamStrategy::Random => write!(f, "random"),
+        }
+    }
+}
+
+impl FromStr for UpstreamStrategy {
+    type Err = Error;
+
+    fn from_str(s: &str) -> Result<Self> {
+        match s.to_lowercase().as_str() {
+            "first-reply" | "firstreply" | "first_reply" => Ok(UpstreamStrategy::FirstReply),
+            "round-robin" | "roundrobin" | "round_robin" => Ok(UpstreamStrategy::RoundRobin),
+            "random" => Ok(UpstreamStrategy::Random),
+            _ => Err(Error::Config(format!(
+                "unknown upstream strategy '{}', expected 'first-reply', 'round-robin', or 'random'",
+                s
+            ))),
+        }
+    }
+}
+
 /// Specification for an upstream DNS server
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum DnsServerSpec {
@@ -93,7 +144,7 @@ pub fn parse_dns_server(s: &str) -> Result<DnsServerSpec> {
         };
 
         if hostname.is_empty() {
-            return Err(Error::DnsConfig("empty hostname in DoT URL".into()));
+            return Err(Error::Config("empty hostname in DoT URL".into()));
         }
 
         return Ok(DnsServerSpec::Dot { hostname, port });
@@ -107,7 +158,7 @@ pub fn parse_dns_server(s: &str) -> Result<DnsServerSpec> {
             "udp" => (addr, Some("udp")),
             "tcp" => (addr, Some("tcp")),
             _ => {
-                return Err(Error::DnsConfig(format!(
+                return Err(Error::Config(format!(
                     "unknown DNS protocol '{}', expected 'udp' or 'tcp'",
                     proto
                 )))
@@ -140,12 +191,12 @@ fn parse_socket_addr(s: &str, default_port: u16) -> Result<SocketAddr> {
             let ip_str = &s[1..bracket_end];
             let ip = ip_str
                 .parse::<IpAddr>()
-                .map_err(|e| Error::DnsConfig(format!("invalid IP address '{}': {}", ip_str, e)))?;
+                .map_err(|e| Error::Config(format!("invalid IP address '{}': {}", ip_str, e)))?;
 
             let port = if s.len() > bracket_end + 1 && s.as_bytes()[bracket_end + 1] == b':' {
                 s[bracket_end + 2..]
                     .parse::<u16>()
-                    .map_err(|e| Error::DnsConfig(format!("invalid port: {}", e)))?
+                    .map_err(|e| Error::Config(format!("invalid port: {}", e)))?
             } else {
                 default_port
             };
@@ -166,15 +217,15 @@ fn parse_socket_addr(s: &str, default_port: u16) -> Result<SocketAddr> {
 
         let ip = ip_str
             .parse::<IpAddr>()
-            .map_err(|e| Error::DnsConfig(format!("invalid IP address '{}': {}", ip_str, e)))?;
+            .map_err(|e| Error::Config(format!("invalid IP address '{}': {}", ip_str, e)))?;
         let port = port_str
             .parse::<u16>()
-            .map_err(|e| Error::DnsConfig(format!("invalid port '{}': {}", port_str, e)))?;
+            .map_err(|e| Error::Config(format!("invalid port '{}': {}", port_str, e)))?;
 
         return Ok(SocketAddr::new(ip, port));
     }
 
-    Err(Error::DnsConfig(format!(
+    Err(Error::Config(format!(
         "cannot parse DNS server address '{}'",
         s
     )))
@@ -373,5 +424,47 @@ mod tests {
     #[test]
     fn test_invalid_ip() {
         assert!(parse_dns_server("not.an.ip").is_err());
+    }
+
+    #[test]
+    fn test_upstream_strategy_default() {
+        assert_eq!(UpstreamStrategy::default(), UpstreamStrategy::FirstReply);
+    }
+
+    #[test]
+    fn test_upstream_strategy_parse() {
+        assert_eq!(
+            "first-reply".parse::<UpstreamStrategy>().unwrap(),
+            UpstreamStrategy::FirstReply
+        );
+        assert_eq!(
+            "round-robin".parse::<UpstreamStrategy>().unwrap(),
+            UpstreamStrategy::RoundRobin
+        );
+        assert_eq!(
+            "random".parse::<UpstreamStrategy>().unwrap(),
+            UpstreamStrategy::Random
+        );
+        // Alternative formats
+        assert_eq!(
+            "first_reply".parse::<UpstreamStrategy>().unwrap(),
+            UpstreamStrategy::FirstReply
+        );
+        assert_eq!(
+            "round_robin".parse::<UpstreamStrategy>().unwrap(),
+            UpstreamStrategy::RoundRobin
+        );
+    }
+
+    #[test]
+    fn test_upstream_strategy_display() {
+        assert_eq!(format!("{}", UpstreamStrategy::FirstReply), "first-reply");
+        assert_eq!(format!("{}", UpstreamStrategy::RoundRobin), "round-robin");
+        assert_eq!(format!("{}", UpstreamStrategy::Random), "random");
+    }
+
+    #[test]
+    fn test_upstream_strategy_invalid() {
+        assert!("invalid".parse::<UpstreamStrategy>().is_err());
     }
 }

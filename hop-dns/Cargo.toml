@@ -1,0 +1,42 @@
+[package]
+name = "hop-dns"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "DNS client with multi-protocol support (UDP, TCP, DoH, DoT) and caching"
+
+[dependencies]
+# Async runtime
+tokio = { version = "1", features = ["net", "io-util", "sync", "time"] }
+
+# Logging
+log = "0.4"
+
+# Error handling
+thiserror = "2"
+
+# DNS client library
+hickory-proto = "0.25"
+
+# LRU cache for DNS caching
+lru = "0.16"
+
+# Random number generation for random upstream selection
+rand = "0.9"
+
+# Socket utilities for binding to specific interfaces
+socket2 = "0.5"
+
+# HTTP client for DoH (DNS over HTTPS) - using rustls with ring (no aws-lc-rs)
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls-native-roots"] }
+
+# TLS for DoT (DNS over TLS) - using rustls with ring crypto provider (no aws-lc-rs)
+tokio-rustls = { version = "0.26", default-features = false, features = ["ring"] }
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
+rustls-pki-types = "1"
+webpki-roots = "1"
+
+[dev-dependencies]
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "time"] }

@@ -5,8 +5,8 @@ use serde::{Deserialize, Serialize};
 use std::net::{IpAddr, Ipv4Addr, SocketAddr, ToSocketAddrs};
 use std::path::Path;
 
-use crate::dns::{parse_dns_server, DnsServerSpec};
 use crate::error::{Error, Result};
+use hop_dns::{parse_dns_server, DnsServerSpec};
 
 /// Main configuration structure
 ///
@@ -460,7 +460,7 @@ impl ServerConfig {
     pub fn parse_dns_servers(&self) -> Result<Vec<DnsServerSpec>> {
         self.dns_servers
             .iter()
-            .map(|s| parse_dns_server(s))
+            .map(|s| parse_dns_server(s).map_err(Error::from))
             .collect()
     }
 }

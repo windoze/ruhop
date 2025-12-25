@@ -1,5 +1,5 @@
 [workspace]
-members = ["hop-protocol", "hop-tun", "ruhop-engine", "ruhop-cli"]
+members = ["hop-protocol", "hop-tun", "hop-dns", "ruhop-engine", "ruhop-cli"]
 resolver = "2"
 
 [workspace.package]

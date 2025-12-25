@@ -37,7 +37,6 @@
 pub mod addr_stats;
 pub mod config;
 pub mod control;
-pub mod dns;
 pub mod engine;
 pub mod error;
 pub mod event;
@@ -49,3 +48,6 @@ pub use control::{ControlClient, ControlRequest, ControlResponse, StatusInfo, Cl
 pub use engine::{VpnEngine, VpnRole};
 pub use error::{Error, Result};
 pub use event::{VpnEvent, VpnState, VpnStats};
+
+// Re-export DNS types from hop-dns for convenience
+pub use hop_dns::{CacheStats, DnsCache, DnsClient, DnsProxy, DnsServerSpec, parse_dns_server};

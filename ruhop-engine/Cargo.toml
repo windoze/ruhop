@@ -8,9 +8,10 @@ repository.workspace = true
 description = "VPN engine interface for Ruhop - reusable across CLI and GUI applications"
 
 [dependencies]
-# Core protocol and TUN support
+# Core protocol, TUN support, and DNS
 hop-protocol = { path = "../hop-protocol" }
 hop-tun = { path = "../hop-tun" }
+hop-dns = { path = "../hop-dns" }
 
 # Async runtime
 tokio = { version = "1", features = ["net", "io-util", "sync", "macros", "rt-multi-thread", "time", "signal", "process"] }
@@ -40,24 +41,6 @@ futures = "0.3"
 
 # Random number generation for port hopping
 rand = "0.9"
-
-# DNS client library for DNS proxy
-hickory-proto = "0.25"
-
-# LRU cache for DNS caching
-lru = "0.16"
-
-# Bytes handling for DNS parsing
-bytes = "1.11"
-
-# HTTP client for DoH (DNS over HTTPS) - using rustls with ring (no aws-lc-rs)
-reqwest = { version = "0.12", default-features = false, features = ["rustls-tls-native-roots"] }
-
-# TLS for DoT (DNS over TLS) - using rustls with ring crypto provider (no aws-lc-rs)
-tokio-rustls = { version = "0.26", default-features = false, features = ["ring"] }
-rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
-rustls-pki-types = "1"
-webpki-roots = "1"
 
 [target.'cfg(unix)'.dependencies]
 nix = { version = "0.30", features = ["net", "uio"] }

@@ -982,6 +982,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "hop-dns"
+version = "0.16.0"
+dependencies = [
+ "hickory-proto",
+ "log",
+ "lru",
+ "rand 0.9.2",
+ "reqwest",
+ "rustls",
+ "rustls-pki-types",
+ "socket2 0.5.10",
+ "thiserror 2.0.17",
+ "tokio",
+ "tokio-rustls",
+ "webpki-roots",
+]
+
+[[package]]
 name = "hop-protocol"
 version = "0.16.0"
 dependencies = [
@@ -2239,29 +2257,22 @@ name = "ruhop-engine"
 version = "0.16.0"
 dependencies = [
  "async-trait",
- "bytes",
  "futures",
- "hickory-proto",
+ "hop-dns",
  "hop-protocol",
  "hop-tun",
  "ipnet",
  "libc",
  "log",
- "lru",
  "nix 0.30.1",
  "rand 0.9.2",
- "reqwest",
- "rustls",
- "rustls-pki-types",
  "serde",
  "serde_json",
  "socket2 0.5.10",
  "thiserror 2.0.17",
  "tokio",
- "tokio-rustls",
  "toml",
  "tracing",
- "webpki-roots",
 ]
 
 [[package]]

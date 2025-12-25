@@ -18,7 +18,7 @@ use hop_protocol::{
     AssignedAddresses, Cipher, IpAddress, Ipv4Pool, Packet, Session, SessionId,
     SessionState,
 };
-use crate::dns::{DnsClient, DnsProxy};
+use hop_dns::{DnsClient, DnsProxy};
 use hop_tun::{NatManager, Route, RouteManager, TunConfig, TunDevice};
 
 use crate::config::{ClientConfig, CommonConfig, Config, ServerConfig};

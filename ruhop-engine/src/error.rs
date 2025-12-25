@@ -74,11 +74,7 @@ pub enum Error {
 
     /// DNS error
     #[error("DNS error: {0}")]
-    Dns(String),
-
-    /// DNS configuration error
-    #[error("DNS configuration error: {0}")]
-    DnsConfig(String),
+    Dns(#[from] hop_dns::Error),
 }
 
 impl Error {
