@@ -1,0 +1,89 @@
+#!/bin/sh /etc/rc.common
+#
+# Ruhop VPN init script for OpenWRT
+#
+# Enable with: /etc/init.d/ruhop enable
+# Start with: /etc/init.d/ruhop start
+# Status with: /etc/init.d/ruhop status
+#
+
+START=99
+STOP=10
+USE_PROCD=1
+
+PROG=/usr/bin/ruhop
+CONF=/etc/ruhop/ruhop.toml
+
+start_service() {
+    # Read configuration from UCI
+    config_load 'ruhop'
+
+    local enabled mode conf_file
+    config_get_bool enabled 'main' 'enabled' '1'
+    config_get mode 'main' 'mode' 'client'
+    config_get conf_file 'main' 'config' "$CONF"
+
+    [ "$enabled" -eq 0 ] && {
+        logger -t ruhop "Service disabled in config"
+        return 0
+    }
+
+    # Ensure config file exists
+    if [ ! -f "$conf_file" ]; then
+        logger -t ruhop "Config file not found: $conf_file"
+        logger -t ruhop "Please copy /etc/ruhop/ruhop.toml.example to $conf_file and configure"
+        return 1
+    fi
+
+    # Ensure TUN module is loaded
+    [ -c /dev/net/tun ] || {
+        modprobe tun 2>/dev/null || {
+            logger -t ruhop "Failed to load TUN kernel module"
+            return 1
+        }
+    }
+
+    procd_open_instance ruhop
+    procd_set_param command "$PROG" --config "$conf_file" "$mode"
+    procd_set_param respawn ${respawn_threshold:-3600} ${respawn_timeout:-5} ${respawn_retry:-5}
+    procd_set_param stdout 1
+    procd_set_param stderr 1
+    procd_set_param pidfile /var/run/ruhop.pid
+    procd_set_param file "$conf_file"
+
+    # Set resource limits
+    procd_set_param limits nofile="65535 65535"
+
+    # Set nice level (optional, uncomment to lower priority)
+    # procd_set_param nice 5
+
+    procd_close_instance
+
+    logger -t ruhop "Starting ruhop VPN in $mode mode"
+}
+
+stop_service() {
+    logger -t ruhop "Stopping ruhop VPN"
+}
+
+reload_service() {
+    stop
+    start
+}
+
+service_triggers() {
+    procd_add_reload_trigger "ruhop"
+    procd_add_config_trigger "config.change" "ruhop" /etc/init.d/ruhop reload
+}
+
+# Status function
+status() {
+    if pgrep -f "$PROG" > /dev/null 2>&1; then
+        local pid=$(pgrep -f "$PROG" | head -1)
+        echo "ruhop is running (PID: $pid)"
+        return 0
+    else
+        echo "ruhop is not running"
+        return 1
+    fi
+}

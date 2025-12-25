@@ -1,0 +1,95 @@
+# Ruhop VPN Configuration for OpenWRT
+#
+# Copy this file to /etc/ruhop/ruhop.toml and edit as needed.
+#
+# Service control:
+#   /etc/init.d/ruhop start    - Start the VPN
+#   /etc/init.d/ruhop stop     - Stop the VPN
+#   /etc/init.d/ruhop restart  - Restart the VPN
+#   /etc/init.d/ruhop status   - Check status
+#
+# Mode selection is done via UCI config (/etc/config/ruhop):
+#   uci set ruhop.main.mode='client'   # or 'server'
+#   uci commit ruhop
+#   /etc/init.d/ruhop restart
+
+[common]
+# Pre-shared key (MUST match between client and server)
+key = "your-secret-key-here"
+
+# MTU for the tunnel interface (adjust if you experience fragmentation issues)
+mtu = 1400
+
+# Log level: error, warn, info, debug, trace
+log_level = "info"
+
+# Enable packet obfuscation (adds random noise bytes)
+obfuscation = false
+
+# Heartbeat interval in seconds (keeps connection alive)
+heartbeat_interval = 30
+
+# Optional: TUN device name
+# tun_device = "ruhop0"
+
+# =============================================================================
+# Server Configuration
+# =============================================================================
+# Uncomment and configure this section if running in server mode.
+# Note: OpenWRT routers are typically used as clients, but server mode
+# is supported for advanced setups.
+
+# [server]
+# # IP address to bind (0.0.0.0 for all interfaces)
+# listen = "0.0.0.0"
+#
+# # Port range - server listens on ALL ports in this range
+# port_range = [4096, 4196]
+#
+# # Tunnel network (server uses first IP, e.g., 10.0.0.1)
+# tunnel_network = "10.0.0.0/24"
+#
+# # DNS servers pushed to clients
+# dns = ["8.8.8.8", "8.8.4.4"]
+#
+# # Maximum number of connected clients
+# max_clients = 100
+#
+# # Enable NAT for client traffic (required for internet access)
+# enable_nat = true
+
+# =============================================================================
+# Client Configuration
+# =============================================================================
+# Configure this section for client mode (most common for OpenWRT).
+
+[client]
+# Server address (hostname or IP)
+# For multi-homed servers, use an array:
+# server = ["vpn1.example.com", "vpn2.example.com"]
+server = "vpn.example.com"
+
+# Port range (MUST match server configuration)
+port_range = [4096, 4196]
+
+# Route all traffic through VPN
+# Set to false if you only want specific routes through the VPN
+route_all_traffic = true
+
+# Automatically reconnect on connection loss
+auto_reconnect = true
+
+# Delay between reconnection attempts (seconds)
+reconnect_delay = 5
+
+# Enable MSS clamping for TCP traffic
+# Recommended when the OpenWRT router acts as a gateway for LAN clients
+# mss_fix = true
+
+# Optional: Path loss detection for multi-homed servers
+# Detects and avoids blocked/lossy network paths
+# [client.probe]
+# interval = 10            # Probe each address every N seconds
+# threshold = 0.5          # Blacklist if loss rate >= 50%
+# blacklist_duration = 300 # Keep blacklisted for 5 minutes
+# min_probes = 3           # Require 3 probes before deciding

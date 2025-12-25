@@ -1,0 +1,18 @@
+# Ruhop VPN UCI configuration
+#
+# This file controls the ruhop service behavior.
+# The actual VPN configuration is in /etc/ruhop/ruhop.toml
+#
+# After modifying this file, reload with:
+#   /etc/init.d/ruhop reload
+#
+
+config ruhop 'main'
+    # Enable/disable the service (0 = disabled, 1 = enabled)
+    option enabled '1'
+
+    # Operation mode: 'client' or 'server'
+    option mode 'client'
+
+    # Path to the TOML configuration file
+    option config '/etc/ruhop/ruhop.toml'

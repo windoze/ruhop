@@ -24,6 +24,52 @@ cargo build --release -p ruhop-cli
 cargo install --path ruhop-cli
 ```
 
+### 构建 OpenWRT 软件包
+
+为 OpenWRT 路由器构建 `.ipk` 软件包：
+
+```bash
+cd ruhop-cli/openwrt
+
+# 为 ARM64 路由器构建（如 RPi 4、现代 ARM 路由器）
+./build-openwrt-package.sh aarch64
+
+# 为 x86_64 构建（虚拟路由器、PC 路由器）
+./build-openwrt-package.sh x86_64
+
+# 为 MIPS 路由器构建（如 MT7621 设备）
+./build-openwrt-package.sh mipsel
+```
+
+支持的架构：
+- `aarch64` - ARM 64 位
+- `armv7` - ARM 32 位（带硬件浮点）
+- `x86_64` - Intel/AMD 64 位
+- `mipsel` - MIPS 小端序（如 MT7621）
+- `mips` - MIPS 大端序
+
+当目标架构与主机架构不同时，脚本会自动使用 `cross` 进行交叉编译。
+
+在路由器上安装：
+
+```bash
+scp output/ruhop_*.ipk root@router:/tmp/
+ssh root@router 'opkg install /tmp/ruhop_*.ipk'
+```
+
+配置并启动：
+
+```bash
+# 编辑配置
+ssh root@router 'vi /etc/ruhop/ruhop.toml'
+
+# 设置模式（client 或 server）
+ssh root@router 'uci set ruhop.main.mode=client && uci commit ruhop'
+
+# 启动服务
+ssh root@router '/etc/init.d/ruhop start'
+```
+
 ## 使用方法
 
 ```

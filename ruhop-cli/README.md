@@ -24,6 +24,52 @@ cargo build --release -p ruhop-cli
 cargo install --path ruhop-cli
 ```
 
+### Build OpenWRT Package
+
+Build an `.ipk` package for OpenWRT routers:
+
+```bash
+cd ruhop-cli/openwrt
+
+# Build for ARM64 routers (e.g., RPi 4, modern ARM routers)
+./build-openwrt-package.sh aarch64
+
+# Build for x86_64 (virtual routers, PC-based routers)
+./build-openwrt-package.sh x86_64
+
+# Build for MIPS routers (e.g., MT7621-based devices)
+./build-openwrt-package.sh mipsel
+```
+
+Supported architectures:
+- `aarch64` - ARM 64-bit
+- `armv7` - ARM 32-bit with hardware float
+- `x86_64` - Intel/AMD 64-bit
+- `mipsel` - MIPS little-endian (e.g., MT7621)
+- `mips` - MIPS big-endian
+
+The script automatically uses `cross` for cross-compilation when the target differs from the host architecture.
+
+Install on router:
+
+```bash
+scp output/ruhop_*.ipk root@router:/tmp/
+ssh root@router 'opkg install /tmp/ruhop_*.ipk'
+```
+
+Configure and start:
+
+```bash
+# Edit configuration
+ssh root@router 'vi /etc/ruhop/ruhop.toml'
+
+# Set mode (client or server)
+ssh root@router 'uci set ruhop.main.mode=client && uci commit ruhop'
+
+# Start service
+ssh root@router '/etc/init.d/ruhop start'
+```
+
 ## Usage
 
 ```
