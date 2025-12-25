@@ -184,11 +184,12 @@ on_connect = "/path/to/connect.sh"
 on_disconnect = "/path/to/disconnect.sh"
 
 # 客户端 DNS 代理（可选）
+# DNS 代理使用 VPN 服务器提供的 DNS 服务器。
+# 如果服务器未提供 DNS 服务器，代理将不会启动。
 # [client.dns_proxy]
 # enabled = true
 # port = 53                         # 监听端口（默认：53）
 # filter_ipv6 = false               # 过滤 AAAA 记录
-# upstream_servers = ["8.8.8.8"]    # 覆盖上游 DNS
 # ipset = "vpn_resolved"            # 仅 Linux：将解析的 IP 添加到 ipset
 ```
 
@@ -199,21 +200,15 @@ on_disconnect = "/path/to/disconnect.sh"
 - 过滤 IPv6 DNS 记录（AAAA）以强制使用 IPv4 连接
 - 将解析的地址填充到 IP 集合中，用于策略路由（仅 Linux）
 
+**重要提示：** DNS 代理使用 VPN 服务器在握手期间提供的 DNS 服务器作为上游。如果服务器未提供 DNS 服务器，代理将不会启动。当 `route_all_traffic` 禁用时，会自动为服务器提供的 DNS 服务器添加通过 VPN 隧道的路由。
+
 ```toml
 [client.dns_proxy]
 enabled = true
 port = 53                           # 监听 tunnel_ip:53
 filter_ipv6 = true                  # 从响应中移除 AAAA 记录
-upstream_servers = ["8.8.8.8"]      # 覆盖服务器提供的 DNS
 ipset = "vpn_resolved"              # 将解析的 IP 添加到此集合
 ```
-
-**上游服务器格式：**
-- `"IP"` 或 `"IP:port"` - UDP DNS（端口默认为 53）
-- `"IP/udp"` 或 `"IP:port/udp"` - 显式 UDP
-- `"IP/tcp"` 或 `"IP:port/tcp"` - TCP DNS
-- `"https://..."` - DNS over HTTPS (DoH)
-- `"tls://..."` - DNS over TLS (DoT)
 
 **IP 集合（仅 Linux）：** 配置 `ipset` 后，解析的 IPv4 地址会被添加到指定的集合中。实现会先尝试 nftables（在表 "ruhop" 中创建集合），如果不可用则回退到 ipset 命令。
 

@@ -221,12 +221,13 @@ reconnect_delay = 5
 # min_probes = 3           # Minimum probes before blacklist decision
 
 # Client-side DNS proxy (optional)
-# Runs a DNS proxy on the tunnel IP to forward DNS queries through the VPN
+# Runs a DNS proxy on the tunnel IP to forward DNS queries through the VPN.
+# The proxy uses DNS servers provided by the VPN server as upstreams.
+# If the server does not provide DNS servers, the proxy will not start.
 # [client.dns_proxy]
 # enabled = true
 # port = 53                # Listen port (default: 53)
 # filter_ipv6 = false      # Filter AAAA records (default: false)
-# upstream_servers = []    # Override upstream DNS (default: use server-provided)
 # ipset = "vpn_resolved"   # Linux only: add resolved IPs to ipset
 "#
         .to_string()
@@ -642,7 +643,11 @@ pub struct ProbeConfig {
 /// Client-side DNS proxy configuration
 ///
 /// When enabled, the client runs a DNS proxy on the tunnel IP that forwards
-/// DNS queries through the VPN tunnel. This can be useful for:
+/// DNS queries through the VPN tunnel. The proxy uses DNS servers provided
+/// by the VPN server during handshake. If the server does not provide DNS
+/// servers, the proxy will not start.
+///
+/// This can be useful for:
 /// - Ensuring all DNS queries go through the VPN
 /// - Filtering IPv6 DNS records
 /// - Populating IP sets with resolved addresses (Linux only)
@@ -654,7 +659,6 @@ pub struct ProbeConfig {
 /// enabled = true
 /// port = 53
 /// filter_ipv6 = true
-/// upstream_servers = ["8.8.8.8", "1.1.1.1"]
 /// ipset = "vpn_resolved"
 /// ```
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -680,22 +684,6 @@ pub struct ClientDnsProxyConfig {
     /// Default: false
     #[serde(default)]
     pub filter_ipv6: bool,
-
-    /// Upstream DNS servers for the proxy
-    ///
-    /// If not specified, uses the DNS servers provided by the VPN server.
-    /// If no servers are available, the DNS proxy will not start.
-    ///
-    /// Supports multiple formats:
-    /// - `"IP"` or `"IP:port"` - UDP DNS server (port defaults to 53)
-    /// - `"IP/udp"` or `"IP:port/udp"` - Explicit UDP DNS
-    /// - `"IP/tcp"` or `"IP:port/tcp"` - TCP DNS
-    /// - `"https://..."` - DNS over HTTPS (DoH)
-    /// - `"tls://..."` - DNS over TLS (DoT)
-    ///
-    /// Default: empty (use server-provided DNS)
-    #[serde(default)]
-    pub upstream_servers: Vec<String>,
 
     /// (Linux only) IP set name to add resolved addresses to
     ///
@@ -741,12 +729,6 @@ impl ClientConfig {
         if let Some(ref dns_proxy) = self.dns_proxy {
             if dns_proxy.enabled && dns_proxy.port == 0 {
                 return Err(Error::Config("dns_proxy.port cannot be 0".into()));
-            }
-            // Validate upstream_servers format
-            for server in &dns_proxy.upstream_servers {
-                parse_dns_server(server).map_err(|e| {
-                    Error::Config(format!("invalid dns_proxy.upstream_servers '{}': {}", server, e))
-                })?;
             }
             // Validate ipset name if configured
             if let Some(ref ipset) = dns_proxy.ipset {

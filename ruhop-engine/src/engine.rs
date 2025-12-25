@@ -563,52 +563,33 @@ impl VpnEngine {
         server_dns_servers: &[IpAddress],
         shutdown_tx: broadcast::Sender<()>,
     ) -> Option<tokio::task::JoinHandle<()>> {
-        use hop_dns::{DnsServerSpec, UpstreamStrategy, parse_dns_server};
+        use hop_dns::{DnsServerSpec, UpstreamStrategy};
 
         if !dns_proxy_config.enabled {
             return None;
         }
 
-        // Determine upstream DNS servers
-        let upstream_specs: Vec<DnsServerSpec> = if !dns_proxy_config.upstream_servers.is_empty() {
-            // Use configured upstream servers
-            match dns_proxy_config
-                .upstream_servers
-                .iter()
-                .map(|s| parse_dns_server(s))
-                .collect::<std::result::Result<Vec<_>, _>>()
-            {
-                Ok(specs) => specs,
-                Err(e) => {
-                    self.log(
-                        LogLevel::Error,
-                        format!("Failed to parse DNS upstream servers: {}", e),
-                    )
-                    .await;
-                    return None;
-                }
-            }
-        } else if !server_dns_servers.is_empty() {
-            // Use servers from VPN server handshake
-            server_dns_servers
-                .iter()
-                .map(|ip| {
-                    let addr = match ip {
-                        IpAddress::V4(v4) => SocketAddr::new(IpAddr::V4(*v4), 53),
-                        IpAddress::V6(v6) => SocketAddr::new(IpAddr::V6(*v6), 53),
-                    };
-                    DnsServerSpec::Udp { addr }
-                })
-                .collect()
-        } else {
-            // No upstream servers available
+        // Use only server-provided DNS servers
+        // This ensures DNS traffic is routed through the VPN tunnel
+        if server_dns_servers.is_empty() {
             self.log(
-                LogLevel::Error,
-                "DNS proxy enabled but no upstream servers configured and server provided none".to_string(),
+                LogLevel::Info,
+                "DNS proxy not started: server did not provide DNS servers".to_string(),
             )
             .await;
             return None;
-        };
+        }
+
+        let upstream_specs: Vec<DnsServerSpec> = server_dns_servers
+            .iter()
+            .map(|ip| {
+                let addr = match ip {
+                    IpAddress::V4(v4) => SocketAddr::new(IpAddr::V4(*v4), 53),
+                    IpAddress::V6(v6) => SocketAddr::new(IpAddr::V6(*v6), 53),
+                };
+                DnsServerSpec::Udp { addr }
+            })
+            .collect();
 
         // Use the tunnel IP as bind address for outgoing DNS queries
         // This routes DNS traffic through the VPN tunnel
@@ -1268,7 +1249,7 @@ impl VpnEngine {
         let route_manager = RouteManager::new().await?;
         let server_ips = client_config.resolve_server_ips()?;
         let original_gateway = route_manager.get_default_gateway().await?;
-        self.setup_client_routes(&route_manager, client_config, &tun_name, tunnel_ipv4, mask, server_tunnel_ip, &server_ips, original_gateway)
+        self.setup_client_routes(&route_manager, client_config, &tun_name, tunnel_ipv4, mask, server_tunnel_ip, &server_ips, original_gateway, &dns_servers)
             .await?;
 
         self.set_state(VpnState::Connected).await;
@@ -1351,6 +1332,7 @@ impl VpnEngine {
         tun_gateway: Ipv4Addr,
         server_ips: &[IpAddr],
         original_gateway: Option<IpAddr>,
+        dns_servers: &[IpAddress],
     ) -> Result<()> {
         // Add routes for the tunnel subnet
         let tunnel_net = ipnet::Ipv4Net::new(tunnel_ip, prefix_len)
@@ -1499,6 +1481,41 @@ impl VpnEngine {
                 format!("Added route: 128.0.0.0/1 via {} dev {}", tun_gateway, tun_name),
             )
             .await;
+        } else if !dns_servers.is_empty() {
+            // When route_all_traffic is disabled, we still need to route DNS server traffic
+            // through the VPN tunnel so that the DNS proxy can work properly.
+            // The DNS proxy binds to the tunnel IP and sends queries to server-provided DNS servers,
+            // which must be routed through the tunnel.
+            for dns_ip in dns_servers {
+                match dns_ip {
+                    IpAddress::V4(ip) => {
+                        let route = Route::ipv4(*ip, 32, Some(tun_gateway))
+                            .map_err(|e| Error::Config(format!("Invalid DNS route: {}", e)))?
+                            .with_interface(tun_name);
+                        if let Err(e) = route_manager.add(&route).await {
+                            self.log(
+                                LogLevel::Warning,
+                                format!("Failed to add DNS route for {}: {}", ip, e),
+                            )
+                            .await;
+                        } else {
+                            self.log(
+                                LogLevel::Info,
+                                format!("Added DNS route: {}/32 via {} dev {}", ip, tun_gateway, tun_name),
+                            )
+                            .await;
+                        }
+                    }
+                    IpAddress::V6(ip) => {
+                        // Skip IPv6 for now as we don't support IPv6 tunnel yet
+                        self.log(
+                            LogLevel::Debug,
+                            format!("Skipping IPv6 DNS route for {}", ip),
+                        )
+                        .await;
+                    }
+                }
+            }
         }
 
         // Setup MSS clamping if enabled (Linux only)
