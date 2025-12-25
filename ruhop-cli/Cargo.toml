@@ -54,7 +54,7 @@ with port hopping capabilities for traffic obfuscation.
 """
 
 [package.metadata.packager.deb]
-depends = ["systemd", "iptables", "iproute2"]
+depends = ["systemd", "nftables | iptables", "iproute2"]
 section = "net"
 priority = "optional"
 
