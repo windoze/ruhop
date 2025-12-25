@@ -102,6 +102,18 @@ pub struct NatManager {
     applied_rules: Vec<NatRule>,
     /// Whether IP forwarding was enabled by us
     enabled_forwarding: bool,
+    /// Original IPv4 forwarding value (to restore on cleanup)
+    #[cfg(target_os = "linux")]
+    original_ipv4_forward: Option<String>,
+    /// Original IPv6 forwarding value (to restore on cleanup)
+    #[cfg(target_os = "linux")]
+    original_ipv6_forward: Option<String>,
+    /// Original macOS forwarding value (to restore on cleanup)
+    #[cfg(target_os = "macos")]
+    original_ip_forward: Option<String>,
+    /// Original Windows forwarding value (to restore on cleanup)
+    #[cfg(target_os = "windows")]
+    original_ip_forward: Option<String>,
 }
 
 impl NatManager {
@@ -110,6 +122,14 @@ impl NatManager {
         Self {
             applied_rules: Vec::new(),
             enabled_forwarding: false,
+            #[cfg(target_os = "linux")]
+            original_ipv4_forward: None,
+            #[cfg(target_os = "linux")]
+            original_ipv6_forward: None,
+            #[cfg(target_os = "macos")]
+            original_ip_forward: None,
+            #[cfg(target_os = "windows")]
+            original_ip_forward: None,
         }
     }
 
@@ -144,8 +164,18 @@ impl NatManager {
     }
 
     #[cfg(target_os = "linux")]
-    fn enable_ip_forwarding_linux(&self) -> Result<()> {
+    fn enable_ip_forwarding_linux(&mut self) -> Result<()> {
         use std::fs;
+
+        // Save original IPv4 forwarding value
+        if let Ok(value) = fs::read_to_string("/proc/sys/net/ipv4/ip_forward") {
+            self.original_ipv4_forward = Some(value.trim().to_string());
+        }
+
+        // Save original IPv6 forwarding value
+        if let Ok(value) = fs::read_to_string("/proc/sys/net/ipv6/conf/all/forwarding") {
+            self.original_ipv6_forward = Some(value.trim().to_string());
+        }
 
         // Enable IPv4 forwarding
         fs::write("/proc/sys/net/ipv4/ip_forward", "1")
@@ -158,7 +188,18 @@ impl NatManager {
     }
 
     #[cfg(target_os = "macos")]
-    fn enable_ip_forwarding_macos(&self) -> Result<()> {
+    fn enable_ip_forwarding_macos(&mut self) -> Result<()> {
+        // Save original forwarding value
+        if let Ok(output) = Command::new("sysctl")
+            .args(["-n", "net.inet.ip.forwarding"])
+            .output()
+        {
+            if output.status.success() {
+                self.original_ip_forward =
+                    Some(String::from_utf8_lossy(&output.stdout).trim().to_string());
+            }
+        }
+
         let output = Command::new("sysctl")
             .args(["-w", "net.inet.ip.forwarding=1"])
             .output()
@@ -175,9 +216,40 @@ impl NatManager {
     }
 
     #[cfg(target_os = "windows")]
-    fn enable_ip_forwarding_windows(&self) -> Result<()> {
+    fn enable_ip_forwarding_windows(&mut self) -> Result<()> {
+        // Save original forwarding value from registry
+        if let Ok(output) = Command::new("reg")
+            .args([
+                "query",
+                r"HKLM\SYSTEM\CurrentControlSet\Services\Tcpip\Parameters",
+                "/v",
+                "IPEnableRouter",
+            ])
+            .output()
+        {
+            if output.status.success() {
+                let stdout = String::from_utf8_lossy(&output.stdout);
+                // Parse registry output to extract the value (format: "IPEnableRouter    REG_DWORD    0x0")
+                for line in stdout.lines() {
+                    if line.contains("IPEnableRouter") {
+                        if let Some(value) = line.split_whitespace().last() {
+                            self.original_ip_forward = Some(value.to_string());
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+
         let output = Command::new("netsh")
-            .args(["interface", "ipv4", "set", "interface", "interface=", "forwarding=enabled"])
+            .args([
+                "interface",
+                "ipv4",
+                "set",
+                "interface",
+                "interface=",
+                "forwarding=enabled",
+            ])
             .output()
             .map_err(|e| Error::Nat(format!("failed to run netsh: {}", e)))?;
 
@@ -187,10 +259,13 @@ impl NatManager {
                 .args([
                     "add",
                     r"HKLM\SYSTEM\CurrentControlSet\Services\Tcpip\Parameters",
-                    "/v", "IPEnableRouter",
-                    "/t", "REG_DWORD",
-                    "/d", "1",
-                    "/f"
+                    "/v",
+                    "IPEnableRouter",
+                    "/t",
+                    "REG_DWORD",
+                    "/d",
+                    "1",
+                    "/f",
                 ])
                 .output()
                 .map_err(|e| Error::Nat(format!("failed to modify registry: {}", e)))?;
@@ -539,7 +614,7 @@ table ip {table} {{
         Ok(())
     }
 
-    /// Clean up all NAT rules and disable IP forwarding if we enabled it
+    /// Clean up all NAT rules and restore IP forwarding to original state
     pub fn cleanup(&mut self) -> Result<()> {
         // Remove all applied rules
         let rules: Vec<NatRule> = self.applied_rules.drain(..).collect();
@@ -551,14 +626,54 @@ table ip {table} {{
         if self.enabled_forwarding {
             #[cfg(target_os = "linux")]
             {
-                let _ = std::fs::write("/proc/sys/net/ipv4/ip_forward", "0");
+                // Restore original IPv4 forwarding value
+                if let Some(ref original) = self.original_ipv4_forward {
+                    log::debug!("Restoring IPv4 forwarding to original value: {}", original);
+                    let _ = std::fs::write("/proc/sys/net/ipv4/ip_forward", original);
+                }
+                // Restore original IPv6 forwarding value
+                if let Some(ref original) = self.original_ipv6_forward {
+                    log::debug!("Restoring IPv6 forwarding to original value: {}", original);
+                    let _ = std::fs::write("/proc/sys/net/ipv6/conf/all/forwarding", original);
+                }
             }
 
             #[cfg(target_os = "macos")]
             {
-                let _ = Command::new("sysctl")
-                    .args(["-w", "net.inet.ip.forwarding=0"])
-                    .output();
+                // Restore original forwarding value
+                if let Some(ref original) = self.original_ip_forward {
+                    log::debug!("Restoring IP forwarding to original value: {}", original);
+                    let _ = Command::new("sysctl")
+                        .args(["-w", &format!("net.inet.ip.forwarding={}", original)])
+                        .output();
+                }
+            }
+
+            #[cfg(target_os = "windows")]
+            {
+                // Restore original forwarding value via registry
+                if let Some(ref original) = self.original_ip_forward {
+                    log::debug!("Restoring IP forwarding to original value: {}", original);
+                    // Parse the hex value (e.g., "0x0" or "0x1") to decimal
+                    let value = if original.starts_with("0x") {
+                        u32::from_str_radix(&original[2..], 16).unwrap_or(0)
+                    } else {
+                        original.parse::<u32>().unwrap_or(0)
+                    };
+                    let _ = Command::new("reg")
+                        .args([
+                            "add",
+                            r"HKLM\SYSTEM\CurrentControlSet\Services\Tcpip\Parameters",
+                            "/v",
+                            "IPEnableRouter",
+                            "/t",
+                            "REG_DWORD",
+                            "/d",
+                            &value.to_string(),
+                            "/f",
+                        ])
+                        .output();
+                }
             }
 
             self.enabled_forwarding = false;
