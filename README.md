@@ -89,6 +89,8 @@ log_level = "info"                # Logging level
 obfuscation = false               # Enable packet obfuscation
 heartbeat_interval = 30           # Heartbeat interval in seconds
 # tun_device = "ruhop0"           # TUN device name (ignored on macOS)
+# log_file = "/var/log/ruhop"     # Log directory for file logging
+# log_rotation = "daily"          # Log rotation: "hourly", "daily", "never"
 
 [server]
 listen = "0.0.0.0"                # IP address to listen on

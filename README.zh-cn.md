@@ -89,6 +89,8 @@ log_level = "info"                # 日志级别
 obfuscation = false               # 启用数据包混淆
 heartbeat_interval = 30           # 心跳间隔（秒）
 # tun_device = "ruhop0"           # TUN 设备名称（macOS 上忽略）
+# log_file = "/var/log/ruhop"     # 日志文件目录
+# log_rotation = "daily"          # 日志轮转周期："hourly"、"daily"、"never"
 
 [server]
 listen = "0.0.0.0"                # 监听 IP 地址

@@ -120,6 +120,16 @@ mtu = 1400
 # Log level: "error", "warn", "info", "debug", "trace"
 log_level = "info"
 
+# Log file directory (optional)
+# When set, logs are written to files in this directory with time-based rolling.
+# If not set, logs are written to stdout only.
+# Log files are named: ruhop.YYYY-MM-DD (daily), ruhop.YYYY-MM-DD-HH (hourly), etc.
+# log_file = "/var/log/ruhop"
+
+# Log rotation period: "hourly", "daily", "never" (default: "daily")
+# Only used when log_file is set.
+# log_rotation = "daily"
+
 # Enable packet obfuscation (default: false)
 obfuscation = false
 
@@ -270,6 +280,23 @@ pub struct CommonConfig {
     /// Set this to run multiple ruhop instances on the same machine.
     #[serde(default)]
     pub tun_device: Option<String>,
+
+    /// Log file path (optional)
+    ///
+    /// When set, logs are written to this file with time-based rolling.
+    /// If not set, logs are written to stdout only.
+    ///
+    /// The path should be a directory where log files will be created.
+    /// Log files are named with the rotation period suffix (e.g., ruhop.2024-01-15).
+    #[serde(default)]
+    pub log_file: Option<String>,
+
+    /// Log rotation period (default: "daily")
+    ///
+    /// How often to rotate log files. Options: "hourly", "daily", "never".
+    /// Only used when `log_file` is set.
+    #[serde(default = "default_log_rotation")]
+    pub log_rotation: String,
 }
 
 impl Default for CommonConfig {
@@ -282,6 +309,8 @@ impl Default for CommonConfig {
             heartbeat_interval: default_heartbeat_interval(),
             control_socket: None,
             tun_device: None,
+            log_file: None,
+            log_rotation: default_log_rotation(),
         }
     }
 }
@@ -817,6 +846,10 @@ fn default_probe_min_probes() -> u32 {
 
 fn default_reconnect_delay() -> u64 {
     5
+}
+
+fn default_log_rotation() -> String {
+    "daily".to_string()
 }
 
 #[cfg(test)]

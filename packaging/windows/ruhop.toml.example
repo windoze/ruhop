@@ -17,6 +17,10 @@ obfuscation = false
 # Heartbeat interval in seconds
 heartbeat_interval = 30
 
+# Optional: Log to file with time-based rotation
+# log_file = "C:\\ProgramData\\Ruhop\\logs"
+# log_rotation = "daily"  # Options: "hourly", "daily", "never"
+
 [client]
 # Server address (hostname or IP, or array for multi-homed servers)
 server = "vpn.example.com"

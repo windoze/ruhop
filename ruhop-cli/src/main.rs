@@ -137,8 +137,21 @@ fn main() -> Result<()> {
 async fn async_main() -> Result<()> {
     let cli = Cli::parse();
 
-    // Initialize logging
-    init_logging(&cli.log_level);
+    // For Server and Client commands, load config first to get log file settings
+    // These settings are only used when log_file is configured
+    let (log_file, log_rotation) = if matches!(cli.command, Commands::Server | Commands::Client) {
+        // Try to load config for log file settings (don't fail if config is invalid yet)
+        Config::load(&cli.config)
+            .ok()
+            .map(|c| (c.common.log_file, c.common.log_rotation))
+            .unwrap_or((None, "daily".to_string()))
+    } else {
+        (None, "daily".to_string())
+    };
+
+    // Initialize logging - outputs to stdout by default, or to file if log_file is configured
+    // The guard must be kept alive to ensure logs are flushed on exit
+    let _log_guard = init_logging(&cli.log_level, log_file.as_deref(), &log_rotation);
 
     // Check for admin privileges on Windows for commands that need it
     #[cfg(windows)]
@@ -221,14 +234,64 @@ fn handle_service_action(action: ServiceAction, config_path: &PathBuf) -> Result
     }
 }
 
-fn init_logging(level: &str) {
-    let filter = EnvFilter::try_from_default_env()
-        .unwrap_or_else(|_| EnvFilter::new(level));
+/// Initialize logging
+///
+/// By default, logs are written to stdout only.
+/// When `log_dir` is set, logs are written to both stdout and files in the specified
+/// directory with time-based rolling. File writes are non-blocking to avoid impacting performance.
+///
+/// Returns an optional guard that must be kept alive for the duration of the program
+/// to ensure all logs are flushed before exit.
+fn init_logging(
+    level: &str,
+    log_dir: Option<&str>,
+    log_rotation: &str,
+) -> Option<tracing_appender::non_blocking::WorkerGuard> {
+    use tracing_appender::rolling;
 
+    let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new(level));
+
+    // Only configure file logging if log_dir is specified
+    if let Some(dir) = log_dir {
+        // Parse rotation period
+        let rotation = match log_rotation.to_lowercase().as_str() {
+            "hourly" => rolling::Rotation::HOURLY,
+            "daily" => rolling::Rotation::DAILY,
+            "never" => rolling::Rotation::NEVER,
+            _ => {
+                eprintln!(
+                    "Warning: Invalid log_rotation '{}', using 'daily'",
+                    log_rotation
+                );
+                rolling::Rotation::DAILY
+            }
+        };
+
+        // Create rolling file appender
+        let file_appender = rolling::RollingFileAppender::new(rotation, dir, "ruhop.log");
+
+        // Wrap in non-blocking layer for async writes
+        let (non_blocking, guard) = tracing_appender::non_blocking(file_appender);
+
+        // Log to both console and file (file writes are non-blocking)
+        tracing_subscriber::registry()
+            .with(filter)
+            .with(tracing_subscriber::fmt::layer())
+            .with(
+                tracing_subscriber::fmt::layer()
+                    .with_ansi(false)
+                    .with_writer(non_blocking),
+            )
+            .init();
+        return Some(guard);
+    }
+
+    // Default: console-only logging (stdout)
     tracing_subscriber::registry()
         .with(filter)
         .with(tracing_subscriber::fmt::layer())
         .init();
+    None
 }
 
 async fn run_server(config_path: PathBuf) -> Result<()> {

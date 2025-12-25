@@ -32,6 +32,10 @@ heartbeat_interval = 30
 # Optional: TUN device name
 # tun_device = "ruhop0"
 
+# Optional: Log to file with time-based rotation
+# log_file = "/var/log/ruhop"
+# log_rotation = "daily"  # Options: "hourly", "daily", "never"
+
 # =============================================================================
 # Server Configuration
 # =============================================================================
