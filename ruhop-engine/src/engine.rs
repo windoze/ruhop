@@ -421,6 +421,7 @@ impl VpnEngine {
         }
     }
 
+    #[allow(unused_variables)]
     async fn setup_nat(&self, server_config: &ServerConfig) -> Result<Option<NatManager>> {
         #[cfg(target_os = "linux")]
         {
