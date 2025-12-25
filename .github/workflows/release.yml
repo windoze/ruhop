@@ -180,6 +180,68 @@ jobs:
           name: macos-universal
           path: artifacts/${{ env.BINARY_NAME }}-macos-universal.tar.gz
 
+  package-linux-amd64-openwrt:
+    name: Package Linux x86_64 OpenWrt IPK
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-unknown-linux-musl
+
+      - name: Install musl-tools
+        run: sudo apt-get update && sudo apt-get install -y musl-tools
+
+      - name: Build and package OpenWrt IPK
+        run: |
+          chmod +x packaging/openwrt/build-openwrt-package.sh
+          packaging/openwrt/build-openwrt-package.sh x86_64
+
+      - name: Prepare artifact
+        run: |
+          mkdir -p artifacts
+          cp packaging/openwrt/output/*.ipk artifacts/${{ env.BINARY_NAME }}-openwrt-x86_64.ipk
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: openwrt-x86_64
+          path: artifacts/${{ env.BINARY_NAME }}-openwrt-x86_64.ipk
+
+  package-linux-arm64-openwrt:
+    name: Package Linux aarch64 OpenWrt IPK
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-unknown-linux-musl
+
+      - name: Install musl-tools
+        run: sudo apt-get update && sudo apt-get install -y musl-tools
+
+      - name: Build and package OpenWrt IPK
+        run: |
+          chmod +x packaging/openwrt/build-openwrt-package.sh
+          packaging/openwrt/build-openwrt-package.sh aarch64
+
+      - name: Prepare artifact
+        run: |
+          mkdir -p artifacts
+          cp packaging/openwrt/output/*.ipk artifacts/${{ env.BINARY_NAME }}-openwrt-aarch64.ipk
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: openwrt-aarch64
+          path: artifacts/${{ env.BINARY_NAME }}-openwrt-aarch64.ipk
+
   build-windows:
     name: Build Windows
     runs-on: windows-latest
@@ -228,7 +290,7 @@ jobs:
 
   release:
     name: Create Release
-    needs: [build-linux-amd64, build-linux-arm64, package-linux-amd64-deb, package-linux-arm64-deb, build-macos, build-windows]
+    needs: [build-linux-amd64, build-linux-arm64, package-linux-amd64-deb, package-linux-arm64-deb, package-linux-amd64-openwrt, package-linux-arm64-openwrt, build-macos, build-windows]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -260,6 +322,8 @@ jobs:
           mv artifacts/linux-arm64/${{ env.BINARY_NAME }}-linux-arm64.tar.gz release/
           mv artifacts/linux-amd64-deb/${{ env.BINARY_NAME }}-linux-amd64.deb release/
           mv artifacts/linux-arm64-deb/${{ env.BINARY_NAME }}-linux-arm64.deb release/
+          mv artifacts/openwrt-x86_64/${{ env.BINARY_NAME }}-openwrt-x86_64.ipk release/
+          mv artifacts/openwrt-aarch64/${{ env.BINARY_NAME }}-openwrt-aarch64.ipk release/
           mv artifacts/macos-universal/${{ env.BINARY_NAME }}-macos-universal.tar.gz release/
           mv artifacts/windows-amd64/${{ env.BINARY_NAME }}-windows-amd64.zip release/
           mv artifacts/windows-amd64-setup/${{ env.BINARY_NAME }}-windows-amd64-setup.exe release/
@@ -280,6 +344,8 @@ jobs:
             release/${{ env.BINARY_NAME }}-linux-arm64.tar.gz
             release/${{ env.BINARY_NAME }}-linux-amd64.deb
             release/${{ env.BINARY_NAME }}-linux-arm64.deb
+            release/${{ env.BINARY_NAME }}-openwrt-x86_64.ipk
+            release/${{ env.BINARY_NAME }}-openwrt-aarch64.ipk
             release/${{ env.BINARY_NAME }}-macos-universal.tar.gz
             release/${{ env.BINARY_NAME }}-windows-amd64.zip
             release/${{ env.BINARY_NAME }}-windows-amd64-setup.exe
