@@ -261,10 +261,8 @@ echo "==> Creating postinst script..."
 cat > "$PKG_DIR/CONTROL/postinst" << 'EOF'
 #!/bin/sh
 
-# Enable and start service if this is a new install
-if [ "$PKG_UPGRADE" != "1" ]; then
-    /etc/init.d/ruhop enable 2>/dev/null || true
-fi
+# Do not auto-enable on fresh install - config needs to be completed first
+# Users should manually run: /etc/init.d/ruhop enable && /etc/init.d/ruhop start
 
 exit 0
 EOF
