@@ -40,10 +40,12 @@ pub mod control;
 pub mod engine;
 pub mod error;
 pub mod event;
+#[cfg(target_os = "linux")]
+pub mod ipset;
 pub mod script;
 pub mod socket;
 
-pub use config::{ClientConfig, Config, DnsConfig, ProbeConfig, ServerAddress, ServerConfig};
+pub use config::{ClientConfig, ClientDnsProxyConfig, Config, DnsConfig, ProbeConfig, ServerAddress, ServerConfig};
 pub use control::{ControlClient, ControlRequest, ControlResponse, StatusInfo, ClientInfo, ClientsInfo, SharedStats, SharedStatsRef, DEFAULT_SOCKET_PATH};
 pub use engine::{VpnEngine, VpnRole};
 pub use error::{Error, Result};

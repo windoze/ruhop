@@ -182,7 +182,40 @@ max_reconnect_attempts = 0        # 0 = 无限制
 reconnect_delay = 5
 on_connect = "/path/to/connect.sh"
 on_disconnect = "/path/to/disconnect.sh"
+
+# 客户端 DNS 代理（可选）
+# [client.dns_proxy]
+# enabled = true
+# port = 53                         # 监听端口（默认：53）
+# filter_ipv6 = false               # 过滤 AAAA 记录
+# upstream_servers = ["8.8.8.8"]    # 覆盖上游 DNS
+# ipset = "vpn_resolved"            # 仅 Linux：将解析的 IP 添加到 ipset
 ```
+
+### 客户端 DNS 代理
+
+客户端可以运行本地 DNS 代理，通过 VPN 隧道转发查询。这对以下场景很有用：
+- 确保所有 DNS 查询都通过 VPN
+- 过滤 IPv6 DNS 记录（AAAA）以强制使用 IPv4 连接
+- 将解析的地址填充到 IP 集合中，用于策略路由（仅 Linux）
+
+```toml
+[client.dns_proxy]
+enabled = true
+port = 53                           # 监听 tunnel_ip:53
+filter_ipv6 = true                  # 从响应中移除 AAAA 记录
+upstream_servers = ["8.8.8.8"]      # 覆盖服务器提供的 DNS
+ipset = "vpn_resolved"              # 将解析的 IP 添加到此集合
+```
+
+**上游服务器格式：**
+- `"IP"` 或 `"IP:port"` - UDP DNS（端口默认为 53）
+- `"IP/udp"` 或 `"IP:port/udp"` - 显式 UDP
+- `"IP/tcp"` 或 `"IP:port/tcp"` - TCP DNS
+- `"https://..."` - DNS over HTTPS (DoH)
+- `"tls://..."` - DNS over TLS (DoT)
+
+**IP 集合（仅 Linux）：** 配置 `ipset` 后，解析的 IPv4 地址会被添加到指定的集合中。实现会先尝试 nftables（在表 "ruhop" 中创建集合），如果不可用则回退到 ipset 命令。
 
 ### 端口跳跃
 

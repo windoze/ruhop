@@ -219,6 +219,15 @@ reconnect_delay = 5
 # threshold = 0.5          # Loss rate threshold for blacklisting (0.0-1.0)
 # blacklist_duration = 300 # Seconds to keep address blacklisted
 # min_probes = 3           # Minimum probes before blacklist decision
+
+# Client-side DNS proxy (optional)
+# Runs a DNS proxy on the tunnel IP to forward DNS queries through the VPN
+# [client.dns_proxy]
+# enabled = true
+# port = 53                # Listen port (default: 53)
+# filter_ipv6 = false      # Filter AAAA records (default: false)
+# upstream_servers = []    # Override upstream DNS (default: use server-provided)
+# ipset = "vpn_resolved"   # Linux only: add resolved IPs to ipset
 "#
         .to_string()
     }
@@ -587,6 +596,15 @@ pub struct ClientConfig {
     /// Default: disabled
     #[serde(default)]
     pub probe: Option<ProbeConfig>,
+
+    /// Client-side DNS proxy configuration
+    ///
+    /// When enabled, runs a DNS proxy on the tunnel IP that forwards
+    /// queries through the VPN. See `ClientDnsProxyConfig` for options.
+    ///
+    /// Default: disabled
+    #[serde(default)]
+    pub dns_proxy: Option<ClientDnsProxyConfig>,
 }
 
 /// Configuration for path loss detection probing
@@ -621,6 +639,84 @@ pub struct ProbeConfig {
     pub min_probes: u32,
 }
 
+/// Client-side DNS proxy configuration
+///
+/// When enabled, the client runs a DNS proxy on the tunnel IP that forwards
+/// DNS queries through the VPN tunnel. This can be useful for:
+/// - Ensuring all DNS queries go through the VPN
+/// - Filtering IPv6 DNS records
+/// - Populating IP sets with resolved addresses (Linux only)
+///
+/// # Example
+///
+/// ```toml
+/// [client.dns_proxy]
+/// enabled = true
+/// port = 53
+/// filter_ipv6 = true
+/// upstream_servers = ["8.8.8.8", "1.1.1.1"]
+/// ipset = "vpn_resolved"
+/// ```
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct ClientDnsProxyConfig {
+    /// Enable the DNS proxy
+    ///
+    /// When enabled, a DNS proxy listens on the tunnel IP address.
+    /// Default: false
+    #[serde(default)]
+    pub enabled: bool,
+
+    /// Port to listen on
+    ///
+    /// The DNS proxy listens on `tunnel_ip:port`.
+    /// Default: 53
+    #[serde(default = "default_dns_port")]
+    pub port: u16,
+
+    /// Filter AAAA (IPv6) records from DNS responses
+    ///
+    /// When enabled, all AAAA records are removed from DNS responses.
+    /// This is useful when you want to force IPv4-only connections.
+    /// Default: false
+    #[serde(default)]
+    pub filter_ipv6: bool,
+
+    /// Upstream DNS servers for the proxy
+    ///
+    /// If not specified, uses the DNS servers provided by the VPN server.
+    /// If no servers are available, the DNS proxy will not start.
+    ///
+    /// Supports multiple formats:
+    /// - `"IP"` or `"IP:port"` - UDP DNS server (port defaults to 53)
+    /// - `"IP/udp"` or `"IP:port/udp"` - Explicit UDP DNS
+    /// - `"IP/tcp"` or `"IP:port/tcp"` - TCP DNS
+    /// - `"https://..."` - DNS over HTTPS (DoH)
+    /// - `"tls://..."` - DNS over TLS (DoT)
+    ///
+    /// Default: empty (use server-provided DNS)
+    #[serde(default)]
+    pub upstream_servers: Vec<String>,
+
+    /// (Linux only) IP set name to add resolved addresses to
+    ///
+    /// When configured, resolved IPv4 addresses are added to an IP set.
+    /// The implementation tries `nft` (nftables) first, then falls back to
+    /// the `ipset` command if nftables is not available.
+    ///
+    /// For nftables: creates a set in table "ruhop" if it doesn't exist.
+    /// For ipset: creates a hash:ip set if it doesn't exist.
+    ///
+    /// Errors during IP set operations are logged but do not stop the DNS proxy.
+    ///
+    /// Default: None (disabled)
+    #[serde(default)]
+    pub ipset: Option<String>,
+}
+
+fn default_dns_port() -> u16 {
+    53
+}
+
 impl ClientConfig {
     /// Validate client configuration
     pub fn validate(&self) -> Result<()> {
@@ -639,6 +735,25 @@ impl ClientConfig {
             route
                 .parse::<ipnet::IpNet>()
                 .map_err(|e| Error::Config(format!("invalid excluded_route '{}': {}", route, e)))?;
+        }
+
+        // Validate dns_proxy config if present
+        if let Some(ref dns_proxy) = self.dns_proxy {
+            if dns_proxy.enabled && dns_proxy.port == 0 {
+                return Err(Error::Config("dns_proxy.port cannot be 0".into()));
+            }
+            // Validate upstream_servers format
+            for server in &dns_proxy.upstream_servers {
+                parse_dns_server(server).map_err(|e| {
+                    Error::Config(format!("invalid dns_proxy.upstream_servers '{}': {}", server, e))
+                })?;
+            }
+            // Validate ipset name if configured
+            if let Some(ref ipset) = dns_proxy.ipset {
+                if ipset.is_empty() {
+                    return Err(Error::Config("dns_proxy.ipset cannot be empty".into()));
+                }
+            }
         }
 
         Ok(())

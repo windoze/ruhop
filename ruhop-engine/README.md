@@ -182,7 +182,40 @@ max_reconnect_attempts = 0        # 0 = unlimited
 reconnect_delay = 5
 on_connect = "/path/to/connect.sh"
 on_disconnect = "/path/to/disconnect.sh"
+
+# Client-side DNS proxy (optional)
+# [client.dns_proxy]
+# enabled = true
+# port = 53                         # Listen port (default: 53)
+# filter_ipv6 = false               # Filter AAAA records
+# upstream_servers = ["8.8.8.8"]    # Override upstream DNS
+# ipset = "vpn_resolved"            # Linux only: add resolved IPs to ipset
 ```
+
+### Client-Side DNS Proxy
+
+The client can run a local DNS proxy that forwards queries through the VPN tunnel. This is useful for:
+- Ensuring all DNS queries go through the VPN
+- Filtering IPv6 DNS records (AAAA) to force IPv4 connections
+- Populating IP sets with resolved addresses for policy routing (Linux only)
+
+```toml
+[client.dns_proxy]
+enabled = true
+port = 53                           # Listen on tunnel_ip:53
+filter_ipv6 = true                  # Remove AAAA records from responses
+upstream_servers = ["8.8.8.8"]      # Override server-provided DNS
+ipset = "vpn_resolved"              # Add resolved IPs to this set
+```
+
+**Upstream server formats:**
+- `"IP"` or `"IP:port"` - UDP DNS (port defaults to 53)
+- `"IP/udp"` or `"IP:port/udp"` - Explicit UDP
+- `"IP/tcp"` or `"IP:port/tcp"` - TCP DNS
+- `"https://..."` - DNS over HTTPS (DoH)
+- `"tls://..."` - DNS over TLS (DoT)
+
+**IP Set (Linux only):** When `ipset` is configured, resolved IPv4 addresses are added to the specified set. The implementation tries nftables first (creates set in table "ruhop"), then falls back to ipset command.
 
 ### Port Hopping
 

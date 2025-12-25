@@ -553,6 +553,167 @@ impl VpnEngine {
         }
     }
 
+    /// Setup DNS proxy for the client if configured
+    ///
+    /// Returns the DNS proxy task handle if started, or None if not configured/failed.
+    async fn setup_client_dns_proxy(
+        &self,
+        dns_proxy_config: &crate::config::ClientDnsProxyConfig,
+        tunnel_ip: Ipv4Addr,
+        server_dns_servers: &[IpAddress],
+        shutdown_tx: broadcast::Sender<()>,
+    ) -> Option<tokio::task::JoinHandle<()>> {
+        use hop_dns::{DnsServerSpec, UpstreamStrategy, parse_dns_server};
+
+        if !dns_proxy_config.enabled {
+            return None;
+        }
+
+        // Determine upstream DNS servers
+        let upstream_specs: Vec<DnsServerSpec> = if !dns_proxy_config.upstream_servers.is_empty() {
+            // Use configured upstream servers
+            match dns_proxy_config
+                .upstream_servers
+                .iter()
+                .map(|s| parse_dns_server(s))
+                .collect::<std::result::Result<Vec<_>, _>>()
+            {
+                Ok(specs) => specs,
+                Err(e) => {
+                    self.log(
+                        LogLevel::Error,
+                        format!("Failed to parse DNS upstream servers: {}", e),
+                    )
+                    .await;
+                    return None;
+                }
+            }
+        } else if !server_dns_servers.is_empty() {
+            // Use servers from VPN server handshake
+            server_dns_servers
+                .iter()
+                .map(|ip| {
+                    let addr = match ip {
+                        IpAddress::V4(v4) => SocketAddr::new(IpAddr::V4(*v4), 53),
+                        IpAddress::V6(v6) => SocketAddr::new(IpAddr::V6(*v6), 53),
+                    };
+                    DnsServerSpec::Udp { addr }
+                })
+                .collect()
+        } else {
+            // No upstream servers available
+            self.log(
+                LogLevel::Error,
+                "DNS proxy enabled but no upstream servers configured and server provided none".to_string(),
+            )
+            .await;
+            return None;
+        };
+
+        // Use the tunnel IP as bind address for outgoing DNS queries
+        // This routes DNS traffic through the VPN tunnel
+        let bind_addr = Some(IpAddr::V4(tunnel_ip));
+
+        // Create DNS client
+        let dns_client = match DnsClient::with_all_options(
+            upstream_specs.clone(),
+            1000, // cache size
+            UpstreamStrategy::default(),
+            dns_proxy_config.filter_ipv6,
+            bind_addr,
+        ) {
+            Ok(client) => Arc::new(client),
+            Err(e) => {
+                self.log(
+                    LogLevel::Error,
+                    format!("Failed to create DNS client: {}", e),
+                )
+                .await;
+                return None;
+            }
+        };
+
+        let listen_addr = SocketAddr::new(IpAddr::V4(tunnel_ip), dns_proxy_config.port);
+
+        // Setup ipset manager if configured (Linux only)
+        #[cfg(target_os = "linux")]
+        let proxy = {
+            use crate::ipset::IpsetManager;
+            use hop_dns::ResolvedIps;
+
+            if let Some(ref ipset_name) = dns_proxy_config.ipset {
+                match IpsetManager::new(ipset_name) {
+                    Ok(ipset_manager) => {
+                        let (resolved_tx, mut resolved_rx) =
+                            tokio::sync::mpsc::channel::<ResolvedIps>(100);
+
+                        // Spawn ipset update task
+                        let ipset_manager = Arc::new(tokio::sync::Mutex::new(ipset_manager));
+                        let ipset_manager_clone = ipset_manager.clone();
+                        tokio::spawn(async move {
+                            while let Some(resolved) = resolved_rx.recv().await {
+                                let ips = resolved.all_ips();
+                                if !ips.is_empty() {
+                                    let mgr = ipset_manager_clone.lock().await;
+                                    mgr.add_ips(&ips);
+                                }
+                            }
+                        });
+
+                        self.log(
+                            LogLevel::Info,
+                            format!("IP set manager initialized for set '{}'", ipset_name),
+                        )
+                        .await;
+
+                        DnsProxy::with_resolved_ips_callback(
+                            listen_addr,
+                            dns_client,
+                            shutdown_tx.subscribe(),
+                            resolved_tx,
+                        )
+                    }
+                    Err(e) => {
+                        self.log(
+                            LogLevel::Warning,
+                            format!(
+                                "Failed to initialize IP set '{}': {}. DNS proxy will continue without ipset.",
+                                ipset_name, e
+                            ),
+                        )
+                        .await;
+                        DnsProxy::new(listen_addr, dns_client, shutdown_tx.subscribe())
+                    }
+                }
+            } else {
+                DnsProxy::new(listen_addr, dns_client, shutdown_tx.subscribe())
+            }
+        };
+
+        #[cfg(not(target_os = "linux"))]
+        let proxy = DnsProxy::new(listen_addr, dns_client, shutdown_tx.subscribe());
+
+        self.log(
+            LogLevel::Info,
+            format!(
+                "Starting client DNS proxy on {} with {} upstream server(s), filter_ipv6={}",
+                listen_addr,
+                upstream_specs.len(),
+                dns_proxy_config.filter_ipv6
+            ),
+        )
+        .await;
+
+        // Spawn DNS proxy task
+        let handle = tokio::spawn(async move {
+            if let Err(e) = proxy.run().await {
+                log::error!("Client DNS proxy error: {}", e);
+            }
+        });
+
+        Some(handle)
+    }
+
     #[allow(clippy::too_many_arguments)]
     async fn run_server_loop(
         &self,
@@ -1138,6 +1299,19 @@ impl VpnEngine {
             // Continue anyway - script failure shouldn't prevent VPN from working
         }
 
+        // Start DNS proxy if configured
+        let dns_proxy_handle = if let Some(ref dns_proxy_config) = client_config.dns_proxy {
+            self.setup_client_dns_proxy(
+                dns_proxy_config,
+                tunnel_ipv4,
+                &dns_servers,
+                shutdown_tx.clone(),
+            )
+            .await
+        } else {
+            None
+        };
+
         // Run client main loop
         let result = self
             .run_client_loop(
@@ -1150,6 +1324,11 @@ impl VpnEngine {
                 self.shared_stats.clone(),
             )
             .await;
+
+        // Cleanup DNS proxy
+        if let Some(handle) = dns_proxy_handle {
+            handle.abort();
+        }
 
         // Run on_disconnect script if configured
         run_disconnect_script(client_config.on_disconnect.as_deref(), &script_params).await;
