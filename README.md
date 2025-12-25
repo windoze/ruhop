@@ -95,7 +95,8 @@ listen = "0.0.0.0"                # IP address to listen on
 port_range = [4096, 4196]         # Server listens on ALL ports in this range
 tunnel_network = "10.0.0.0/24"    # Tunnel network (server uses first IP)
 # tunnel_ip = "10.0.0.1"          # Optional: override server tunnel IP
-dns = ["8.8.8.8", "8.8.4.4"]      # DNS servers for clients
+# dns_proxy = true                # Enable DNS proxy on tunnel IP
+# dns_servers = ["8.8.8.8"]       # Upstream DNS servers for proxy
 max_clients = 100                 # Maximum concurrent clients
 enable_nat = true                 # Enable NAT/masquerading
 

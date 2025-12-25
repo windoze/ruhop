@@ -95,7 +95,8 @@ listen = "0.0.0.0"                # 监听 IP 地址
 port_range = [4096, 4196]         # 服务器监听此范围内的所有端口
 tunnel_network = "10.0.0.0/24"    # 隧道网络（服务器使用第一个 IP）
 # tunnel_ip = "10.0.0.1"          # 可选：覆盖服务器隧道 IP
-dns = ["8.8.8.8", "8.8.4.4"]      # 客户端 DNS 服务器
+# dns_proxy = true                # 在隧道 IP 上启用 DNS 代理
+# dns_servers = ["8.8.8.8"]       # 代理的上游 DNS 服务器
 max_clients = 100                 # 最大并发客户端数
 enable_nat = true                 # 启用 NAT/伪装
 

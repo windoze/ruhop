@@ -29,7 +29,6 @@ log_level = "debug"
 listen = "0.0.0.0"
 port_range = [$PORT_START, $PORT_END]
 tunnel_network = "10.99.2.0/24"
-dns = ["8.8.8.8"]
 max_clients = 10
 enable_nat = true
 EOF

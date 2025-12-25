@@ -161,7 +161,8 @@ listen = "0.0.0.0"                # IP address to bind
 port_range = [4096, 4196]         # Server listens on ALL ports in this range
 tunnel_network = "10.0.0.0/24"    # Tunnel network (server uses first IP)
 # tunnel_ip = "10.0.0.1"          # Optional: override server tunnel IP
-dns = ["8.8.8.8", "8.8.4.4"]
+# dns_proxy = true                # Enable DNS proxy on tunnel IP
+# dns_servers = ["8.8.8.8"]       # Upstream DNS (defaults to 8.8.8.8, 1.1.1.1)
 max_clients = 100
 enable_nat = true
 nat_interface = "eth0"
@@ -200,7 +201,7 @@ The client can run a local DNS proxy that forwards queries through the VPN tunne
 - Filtering IPv6 DNS records (AAAA) to force IPv4 connections
 - Populating IP sets with resolved addresses for policy routing (Linux only)
 
-**Important:** The DNS proxy uses DNS servers provided by the VPN server during handshake. If the server does not provide DNS servers, the proxy will not start. When `route_all_traffic` is disabled, routes for server-provided DNS servers are automatically added through the VPN tunnel.
+**Important:** The DNS proxy uses DNS servers provided by the VPN server during handshake. If the server does not enable `dns_proxy`, the client DNS proxy will not start.
 
 ```toml
 [client.dns_proxy]

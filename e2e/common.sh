@@ -178,7 +178,6 @@ log_level = "debug"
 listen = "$listen_ip"
 port_range = [$port_start, $port_end]
 tunnel_network = "$tunnel_network"
-dns = ["8.8.8.8", "8.8.4.4"]
 max_clients = 10
 enable_nat = true
 TOML

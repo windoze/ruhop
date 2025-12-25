@@ -41,8 +41,9 @@ heartbeat_interval = 30
 # # Optional: override server tunnel IP
 # # tunnel_ip = "10.0.0.1"
 #
-# # DNS servers pushed to clients
-# dns = ["8.8.8.8", "8.8.4.4"]
+# # Enable DNS proxy on tunnel IP (pushes tunnel IP to clients)
+# # dns_proxy = true
+# # dns_servers = ["8.8.8.8", "1.1.1.1"]  # Upstream DNS servers for proxy
 #
 # # Maximum number of connected clients
 # max_clients = 100

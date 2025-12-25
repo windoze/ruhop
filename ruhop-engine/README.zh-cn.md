@@ -161,7 +161,8 @@ listen = "0.0.0.0"                # 监听 IP 地址
 port_range = [4096, 4196]         # 服务器监听此范围内的所有端口
 tunnel_network = "10.0.0.0/24"    # 隧道网络（服务器使用第一个 IP）
 # tunnel_ip = "10.0.0.1"          # 可选：覆盖服务器隧道 IP
-dns = ["8.8.8.8", "8.8.4.4"]
+# dns_proxy = true                # 在隧道 IP 上启用 DNS 代理
+# dns_servers = ["8.8.8.8"]       # 上游 DNS（默认 8.8.8.8, 1.1.1.1）
 max_clients = 100
 enable_nat = true
 nat_interface = "eth0"
@@ -200,7 +201,7 @@ on_disconnect = "/path/to/disconnect.sh"
 - 过滤 IPv6 DNS 记录（AAAA）以强制使用 IPv4 连接
 - 将解析的地址填充到 IP 集合中，用于策略路由（仅 Linux）
 
-**重要提示：** DNS 代理使用 VPN 服务器在握手期间提供的 DNS 服务器作为上游。如果服务器未提供 DNS 服务器，代理将不会启动。当 `route_all_traffic` 禁用时，会自动为服务器提供的 DNS 服务器添加通过 VPN 隧道的路由。
+**重要提示：** DNS 代理使用 VPN 服务器在握手期间提供的 DNS 服务器作为上游。如果服务器未启用 `dns_proxy`，客户端 DNS 代理将不会启动。
 
 ```toml
 [client.dns_proxy]

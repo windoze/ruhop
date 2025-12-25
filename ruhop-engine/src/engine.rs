@@ -496,61 +496,48 @@ impl VpnEngine {
         tunnel_ip: Ipv4Addr,
         shutdown_tx: broadcast::Sender<()>,
     ) -> Result<Vec<IpAddress>> {
-        use crate::config::DnsConfig;
-
-        // Determine DNS servers to push to clients based on config
-        match &server_config.dns {
-            DnsConfig::Push(ips) if ips.is_empty() => {
-                // Empty DNS config - don't push any DNS servers
-                Ok(Vec::new())
-            }
-            DnsConfig::Push(ips) => {
-                // Push specific IPs to client, no proxy needed
-                let dns_ips: Vec<IpAddress> = ips.iter().map(|ip| IpAddress::from(*ip)).collect();
-                self.log(
-                    LogLevel::Info,
-                    format!("DNS servers to push: {:?}", ips),
-                )
-                .await;
-                Ok(dns_ips)
-            }
-            DnsConfig::Tunnel(_) => {
-                // Enable DNS proxy on tunnel IP, push tunnel IP to client
-                let upstreams = server_config.parse_dns_servers()?;
-                if upstreams.is_empty() {
-                    return Err(Error::Config(
-                        "dns = \"tunnel\" requires dns_servers to be configured".into(),
-                    ));
-                }
-
-                // Create DNS client with upstream servers
-                let dns_client = Arc::new(DnsClient::new(upstreams.clone(), 1000)?);
-
-                // Create and start DNS proxy
-                let bind_addr = SocketAddr::new(IpAddr::V4(tunnel_ip), 53);
-                let proxy = DnsProxy::new(bind_addr, dns_client, shutdown_tx.subscribe());
-
-                self.log(
-                    LogLevel::Info,
-                    format!(
-                        "Starting DNS proxy on {} with {} upstream server(s)",
-                        bind_addr,
-                        upstreams.len()
-                    ),
-                )
-                .await;
-
-                // Spawn DNS proxy in background
-                tokio::spawn(async move {
-                    if let Err(e) = proxy.run().await {
-                        log::error!("DNS proxy error: {}", e);
-                    }
-                });
-
-                // Push tunnel IP as DNS server to clients
-                Ok(vec![IpAddress::V4(tunnel_ip)])
-            }
+        if !server_config.dns_proxy {
+            // DNS proxy disabled - don't push any DNS servers
+            return Ok(Vec::new());
         }
+
+        // DNS proxy enabled - use configured upstreams or defaults
+        let upstreams = if server_config.dns_servers.is_empty() {
+            // Default upstream servers
+            vec![
+                hop_dns::DnsServerSpec::Udp { addr: "8.8.8.8:53".parse().unwrap() },
+                hop_dns::DnsServerSpec::Udp { addr: "1.1.1.1:53".parse().unwrap() },
+            ]
+        } else {
+            server_config.parse_dns_servers()?
+        };
+
+        // Create DNS client with upstream servers
+        let dns_client = Arc::new(DnsClient::new(upstreams.clone(), 1000)?);
+
+        // Create and start DNS proxy
+        let bind_addr = SocketAddr::new(IpAddr::V4(tunnel_ip), 53);
+        let proxy = DnsProxy::new(bind_addr, dns_client, shutdown_tx.subscribe());
+
+        self.log(
+            LogLevel::Info,
+            format!(
+                "Starting DNS proxy on {} with {} upstream server(s)",
+                bind_addr,
+                upstreams.len()
+            ),
+        )
+        .await;
+
+        // Spawn DNS proxy in background
+        tokio::spawn(async move {
+            if let Err(e) = proxy.run().await {
+                log::error!("DNS proxy error: {}", e);
+            }
+        });
+
+        // Push tunnel IP as DNS server to clients
+        Ok(vec![IpAddress::V4(tunnel_ip)])
     }
 
     /// Setup DNS proxy for the client if configured
@@ -1249,7 +1236,7 @@ impl VpnEngine {
         let route_manager = RouteManager::new().await?;
         let server_ips = client_config.resolve_server_ips()?;
         let original_gateway = route_manager.get_default_gateway().await?;
-        self.setup_client_routes(&route_manager, client_config, &tun_name, tunnel_ipv4, mask, server_tunnel_ip, &server_ips, original_gateway, &dns_servers)
+        let added_routes = self.setup_client_routes(&route_manager, client_config, &tun_name, tunnel_ipv4, mask, server_tunnel_ip, &server_ips, original_gateway, &dns_servers)
             .await?;
 
         self.set_state(VpnState::Connected).await;
@@ -1315,12 +1302,12 @@ impl VpnEngine {
         run_disconnect_script(client_config.on_disconnect.as_deref(), &script_params).await;
 
         // Cleanup routes
-        self.cleanup_client_routes(&route_manager, client_config, &tun_name, tunnel_ipv4, mask, server_tunnel_ip, &server_ips, original_gateway)
-            .await;
+        self.cleanup_client_routes(&route_manager, &added_routes, client_config.mss_fix, &tun_name).await;
 
         result
     }
 
+    /// Setup client routes and return the list of successfully added routes for cleanup
     #[allow(clippy::too_many_arguments)]
     async fn setup_client_routes(
         &self,
@@ -1333,7 +1320,9 @@ impl VpnEngine {
         server_ips: &[IpAddr],
         original_gateway: Option<IpAddr>,
         dns_servers: &[IpAddress],
-    ) -> Result<()> {
+    ) -> Result<Vec<Route>> {
+        let mut added_routes: Vec<Route> = Vec::new();
+
         // Add routes for the tunnel subnet
         let tunnel_net = ipnet::Ipv4Net::new(tunnel_ip, prefix_len)
             .map_err(|e| Error::Config(format!("Invalid tunnel network: {}", e)))?
@@ -1344,10 +1333,6 @@ impl VpnEngine {
             // On Linux with point-to-point TUN interfaces, we need two routes:
             // 1. A host route to the peer (gateway) IP directly via the interface
             // 2. A subnet route via the peer IP as gateway
-            //
-            // This results in routing like:
-            //   10.1.1.4 dev ruhop scope link src 10.1.1.3
-            //   10.1.1.0/24 via 10.1.1.4 dev ruhop
 
             // Route 1: Host route to peer (gateway) - makes the gateway reachable
             let peer_route = Route::interface_route(
@@ -1355,17 +1340,10 @@ impl VpnEngine {
                 tun_name,
             );
             if let Err(e) = route_manager.add(&peer_route).await {
-                self.log(
-                    LogLevel::Warning,
-                    format!("Failed to add peer route: {}", e),
-                )
-                .await;
+                self.log(LogLevel::Warning, format!("Failed to add peer route: {}", e)).await;
             } else {
-                self.log(
-                    LogLevel::Info,
-                    format!("Added route: {}/32 dev {}", tun_gateway, tun_name),
-                )
-                .await;
+                self.log(LogLevel::Info, format!("Added route: {}/32 dev {}", tun_gateway, tun_name)).await;
+                added_routes.push(peer_route);
             }
 
             // Route 2: Subnet route via the gateway
@@ -1373,17 +1351,10 @@ impl VpnEngine {
                 .map_err(|e| Error::Config(format!("Invalid tunnel route: {}", e)))?
                 .with_interface(tun_name);
             if let Err(e) = route_manager.add(&subnet_route).await {
-                self.log(
-                    LogLevel::Warning,
-                    format!("Failed to add tunnel subnet route: {}", e),
-                )
-                .await;
+                self.log(LogLevel::Warning, format!("Failed to add tunnel subnet route: {}", e)).await;
             } else {
-                self.log(
-                    LogLevel::Info,
-                    format!("Added route: {} via {} dev {}", tunnel_net, tun_gateway, tun_name),
-                )
-                .await;
+                self.log(LogLevel::Info, format!("Added route: {} via {} dev {}", tunnel_net, tun_gateway, tun_name)).await;
+                added_routes.push(subnet_route);
             }
         }
 
@@ -1392,17 +1363,10 @@ impl VpnEngine {
             // On other platforms, use a simple interface route
             let tunnel_route = Route::interface_route(ipnet::IpNet::V4(tunnel_net), tun_name);
             if let Err(e) = route_manager.add(&tunnel_route).await {
-                self.log(
-                    LogLevel::Warning,
-                    format!("Failed to add tunnel subnet route: {}", e),
-                )
-                .await;
+                self.log(LogLevel::Warning, format!("Failed to add tunnel subnet route: {}", e)).await;
             } else {
-                self.log(
-                    LogLevel::Info,
-                    format!("Added route: {} dev {}", tunnel_net, tun_name),
-                )
-                .await;
+                self.log(LogLevel::Info, format!("Added route: {} dev {}", tunnel_net, tun_name)).await;
+                added_routes.push(tunnel_route);
             }
         }
 
@@ -1417,48 +1381,32 @@ impl VpnEngine {
                     match server_ip {
                         IpAddr::V4(ip) => {
                             if let IpAddr::V4(gw) = orig_gw {
-                                let route = Route::ipv4(*ip, 32, Some(gw))?;
-                                if let Err(e) = route_manager.add(&route).await {
-                                    self.log(
-                                        LogLevel::Warning,
-                                        format!("Failed to add server route for {}: {}", ip, e),
-                                    )
-                                    .await;
-                                } else {
-                                    self.log(
-                                        LogLevel::Info,
-                                        format!("Added route: {}/32 via {}", ip, gw),
-                                    )
-                                    .await;
+                                if let Ok(route) = Route::ipv4(*ip, 32, Some(gw)) {
+                                    if let Err(e) = route_manager.add(&route).await {
+                                        self.log(LogLevel::Warning, format!("Failed to add server route for {}: {}", ip, e)).await;
+                                    } else {
+                                        self.log(LogLevel::Info, format!("Added route: {}/32 via {}", ip, gw)).await;
+                                        added_routes.push(route);
+                                    }
                                 }
                             }
                         }
                         IpAddr::V6(ip) => {
                             if let IpAddr::V6(gw) = orig_gw {
-                                let route = Route::ipv6(*ip, 128, Some(gw))?;
-                                if let Err(e) = route_manager.add(&route).await {
-                                    self.log(
-                                        LogLevel::Warning,
-                                        format!("Failed to add server route for {}: {}", ip, e),
-                                    )
-                                    .await;
-                                } else {
-                                    self.log(
-                                        LogLevel::Info,
-                                        format!("Added route: {}/128 via {}", ip, gw),
-                                    )
-                                    .await;
+                                if let Ok(route) = Route::ipv6(*ip, 128, Some(gw)) {
+                                    if let Err(e) = route_manager.add(&route).await {
+                                        self.log(LogLevel::Warning, format!("Failed to add server route for {}: {}", ip, e)).await;
+                                    } else {
+                                        self.log(LogLevel::Info, format!("Added route: {}/128 via {}", ip, gw)).await;
+                                        added_routes.push(route);
+                                    }
                                 }
                             }
                         }
                     }
                 }
             } else {
-                self.log(
-                    LogLevel::Warning,
-                    "No default gateway found, server routes not added - VPN traffic may be disrupted",
-                )
-                .await;
+                self.log(LogLevel::Warning, "No default gateway found, server routes not added - VPN traffic may be disrupted").await;
             }
 
             // Route all traffic through VPN
@@ -1469,50 +1417,30 @@ impl VpnEngine {
                 .with_interface(tun_name);
 
             route_manager.add(&route1).await?;
-            self.log(
-                LogLevel::Info,
-                format!("Added route: 0.0.0.0/1 via {} dev {}", tun_gateway, tun_name),
-            )
-            .await;
+            self.log(LogLevel::Info, format!("Added route: 0.0.0.0/1 via {} dev {}", tun_gateway, tun_name)).await;
+            added_routes.push(route1);
 
             route_manager.add(&route2).await?;
-            self.log(
-                LogLevel::Info,
-                format!("Added route: 128.0.0.0/1 via {} dev {}", tun_gateway, tun_name),
-            )
-            .await;
+            self.log(LogLevel::Info, format!("Added route: 128.0.0.0/1 via {} dev {}", tun_gateway, tun_name)).await;
+            added_routes.push(route2);
         } else if !dns_servers.is_empty() {
-            // When route_all_traffic is disabled, we still need to route DNS server traffic
-            // through the VPN tunnel so that the DNS proxy can work properly.
-            // The DNS proxy binds to the tunnel IP and sends queries to server-provided DNS servers,
-            // which must be routed through the tunnel.
+            // When route_all_traffic is disabled, route DNS server traffic through VPN tunnel
+            // so that the DNS proxy can forward queries to server-provided DNS servers.
             for dns_ip in dns_servers {
                 match dns_ip {
                     IpAddress::V4(ip) => {
-                        let route = Route::ipv4(*ip, 32, Some(tun_gateway))
-                            .map_err(|e| Error::Config(format!("Invalid DNS route: {}", e)))?
-                            .with_interface(tun_name);
-                        if let Err(e) = route_manager.add(&route).await {
-                            self.log(
-                                LogLevel::Warning,
-                                format!("Failed to add DNS route for {}: {}", ip, e),
-                            )
-                            .await;
-                        } else {
-                            self.log(
-                                LogLevel::Info,
-                                format!("Added DNS route: {}/32 via {} dev {}", ip, tun_gateway, tun_name),
-                            )
-                            .await;
+                        if let Ok(route) = Route::ipv4(*ip, 32, Some(tun_gateway)) {
+                            let route = route.with_interface(tun_name);
+                            if let Err(e) = route_manager.add(&route).await {
+                                self.log(LogLevel::Warning, format!("Failed to add DNS route for {}: {}", ip, e)).await;
+                            } else {
+                                self.log(LogLevel::Info, format!("Added DNS route: {}/32 via {} dev {}", ip, tun_gateway, tun_name)).await;
+                                added_routes.push(route);
+                            }
                         }
                     }
                     IpAddress::V6(ip) => {
-                        // Skip IPv6 for now as we don't support IPv6 tunnel yet
-                        self.log(
-                            LogLevel::Debug,
-                            format!("Skipping IPv6 DNS route for {}", ip),
-                        )
-                        .await;
+                        self.log(LogLevel::Debug, format!("Skipping IPv6 DNS route for {}", ip)).await;
                     }
                 }
             }
@@ -1524,7 +1452,7 @@ impl VpnEngine {
             self.setup_mss_clamping(tun_name).await;
         }
 
-        Ok(())
+        Ok(added_routes)
     }
 
     /// Setup MSS clamping for TCP traffic through the TUN interface (Linux only)
@@ -1697,87 +1625,32 @@ table ip {table} {{
             .output();
     }
 
-    #[allow(clippy::too_many_arguments)]
+    /// Cleanup all routes that were added during connection
     async fn cleanup_client_routes(
         &self,
         route_manager: &RouteManager,
-        client_config: &ClientConfig,
+        routes: &[Route],
+        mss_fix: bool,
         tun_name: &str,
-        tunnel_ip: Ipv4Addr,
-        prefix_len: u8,
-        tun_gateway: Ipv4Addr,
-        server_ips: &[IpAddr],
-        original_gateway: Option<IpAddr>,
     ) {
-        // Remove tunnel routes (always added)
-        if let Ok(tunnel_net) = ipnet::Ipv4Net::new(tunnel_ip, prefix_len) {
-            let tunnel_net = tunnel_net.trunc();
-
-            #[cfg(target_os = "linux")]
-            {
-                // On Linux, we added two routes:
-                // 1. Host route to peer
-                let peer_route = Route::interface_route(
-                    ipnet::IpNet::V4(ipnet::Ipv4Net::new(tun_gateway, 32).unwrap()),
-                    tun_name,
-                );
-                let _ = route_manager.delete(&peer_route).await;
-
-                // 2. Subnet route via gateway
-                if let Ok(subnet_route) =
-                    Route::ipv4(tunnel_net.addr(), tunnel_net.prefix_len(), Some(tun_gateway))
-                {
-                    let _ = route_manager
-                        .delete(&subnet_route.with_interface(tun_name))
-                        .await;
-                }
-            }
-
-            #[cfg(not(target_os = "linux"))]
-            {
-                let tunnel_route =
-                    Route::interface_route(ipnet::IpNet::V4(tunnel_net), tun_name);
-                let _ = route_manager.delete(&tunnel_route).await;
-            }
-        }
-
-        if client_config.route_all_traffic {
-            // Remove server-specific routes (only added when route_all_traffic is true)
-            if let Some(orig_gw) = original_gateway {
-                for server_ip in server_ips {
-                    match server_ip {
-                        IpAddr::V4(ip) => {
-                            if let IpAddr::V4(gw) = orig_gw {
-                                if let Ok(route) = Route::ipv4(*ip, 32, Some(gw)) {
-                                    let _ = route_manager.delete(&route).await;
-                                }
-                            }
-                        }
-                        IpAddr::V6(ip) => {
-                            if let IpAddr::V6(gw) = orig_gw {
-                                if let Ok(route) = Route::ipv6(*ip, 128, Some(gw)) {
-                                    let _ = route_manager.delete(&route).await;
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-
-            // Remove the catch-all routes
-            if let Ok(route1) = Route::ipv4(Ipv4Addr::new(0, 0, 0, 0), 1, Some(tun_gateway)) {
-                let _ = route_manager.delete(&route1.with_interface(tun_name)).await;
-            }
-            if let Ok(route2) = Route::ipv4(Ipv4Addr::new(128, 0, 0, 0), 1, Some(tun_gateway)) {
-                let _ = route_manager.delete(&route2.with_interface(tun_name)).await;
+        // Delete all routes that were successfully added
+        for route in routes {
+            if let Err(e) = route_manager.delete(route).await {
+                self.log(LogLevel::Debug, format!("Failed to delete route {}: {}", route, e)).await;
+            } else {
+                self.log(LogLevel::Debug, format!("Deleted route: {}", route)).await;
             }
         }
 
         // Cleanup MSS clamping if it was enabled (Linux only)
         #[cfg(target_os = "linux")]
-        if client_config.mss_fix {
+        if mss_fix {
             Self::cleanup_mss_clamping(tun_name);
         }
+
+        // Suppress unused variable warning on non-Linux
+        #[cfg(not(target_os = "linux"))]
+        let _ = (mss_fix, tun_name);
     }
 
     #[allow(clippy::too_many_arguments)]

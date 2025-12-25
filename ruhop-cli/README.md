@@ -29,7 +29,7 @@ cargo install --path ruhop-cli
 Build an `.ipk` package for OpenWRT routers:
 
 ```bash
-cd ruhop-cli/openwrt
+cd packaging/openwrt
 
 # Build for ARM64 routers (e.g., RPi 4, modern ARM routers)
 ./build-openwrt-package.sh aarch64
@@ -114,7 +114,8 @@ listen = "0.0.0.0"                # IP address to bind
 port_range = [4096, 4196]         # Server listens on ALL ports in this range
 tunnel_network = "10.0.0.0/24"    # Tunnel network (server uses first IP)
 # tunnel_ip = "10.0.0.1"          # Optional: override server tunnel IP
-dns = ["8.8.8.8"]
+# dns_proxy = true                # Enable DNS proxy on tunnel IP
+# dns_servers = ["8.8.8.8"]       # Upstream DNS servers for proxy
 enable_nat = true
 
 [client]
