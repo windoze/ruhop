@@ -453,7 +453,7 @@ impl VpnEngine {
             )
             .await;
 
-            return Ok(Some(nat_manager));
+            Ok(Some(nat_manager))
         }
 
         #[cfg(not(target_os = "linux"))]
@@ -872,7 +872,84 @@ impl VpnEngine {
         let client_config = self.config.client_config()?;
         let common_config = &self.config.common;
 
-        self.set_state(VpnState::Connecting).await;
+        let auto_reconnect = client_config.auto_reconnect;
+        let reconnect_delay = Duration::from_secs(client_config.reconnect_delay);
+        let max_attempts = client_config.max_reconnect_attempts;
+        let mut attempt = 0u32;
+
+        loop {
+            attempt += 1;
+            if max_attempts > 0 && attempt > max_attempts {
+                self.log(
+                    LogLevel::Error,
+                    format!("Max reconnection attempts ({}) reached", max_attempts),
+                )
+                .await;
+                return Err(Error::Connection("max reconnection attempts reached".to_string()));
+            }
+
+            let result = self
+                .run_client_connection(&shutdown_tx, client_config, common_config, attempt)
+                .await;
+
+            match result {
+                Ok(()) => {
+                    // Clean shutdown
+                    return Ok(());
+                }
+                Err(ref e) if e.should_reconnect() && auto_reconnect => {
+                    self.set_state(VpnState::Reconnecting).await;
+                    self.log(
+                        LogLevel::Info,
+                        format!(
+                            "Connection lost, will reconnect in {} seconds (attempt {}{})",
+                            reconnect_delay.as_secs(),
+                            attempt,
+                            if max_attempts > 0 {
+                                format!("/{}", max_attempts)
+                            } else {
+                                String::new()
+                            }
+                        ),
+                    )
+                    .await;
+
+                    // Wait before reconnecting, but check for shutdown
+                    let mut shutdown_rx = shutdown_tx.subscribe();
+                    tokio::select! {
+                        _ = tokio::time::sleep(reconnect_delay) => {
+                            // Continue to reconnect
+                        }
+                        _ = shutdown_rx.recv() => {
+                            self.log(LogLevel::Info, "Shutdown requested during reconnect delay").await;
+                            self.set_state(VpnState::Disconnected).await;
+                            return Ok(());
+                        }
+                    }
+                }
+                Err(e) => {
+                    // Non-recoverable error or auto_reconnect disabled
+                    self.set_state(VpnState::Disconnected).await;
+                    return Err(e);
+                }
+            }
+        }
+    }
+
+    /// Run a single client connection attempt
+    async fn run_client_connection(
+        &self,
+        shutdown_tx: &broadcast::Sender<()>,
+        client_config: &ClientConfig,
+        common_config: &CommonConfig,
+        attempt: u32,
+    ) -> Result<()> {
+        if attempt > 1 {
+            self.set_state(VpnState::Reconnecting).await;
+            self.log(LogLevel::Info, format!("Reconnection attempt {}", attempt)).await;
+        } else {
+            self.set_state(VpnState::Connecting).await;
+        }
         self.log(LogLevel::Info, format!("Connecting to server: {:?}", client_config.server)).await;
 
         // Configure Windows Firewall to allow VPN traffic
@@ -1068,7 +1145,7 @@ impl VpnEngine {
                 cipher,
                 session,
                 server_addrs,
-                shutdown_tx,
+                shutdown_tx.clone(),
                 self.shared_stats.clone(),
             )
             .await;
@@ -1590,7 +1667,7 @@ table ip {table} {{
         let server_addrs_tun = server_addrs.clone();
         let addr_tracker_tun = addr_tracker.clone();
 
-        let tun_to_udp = tokio::spawn(async move {
+        let mut tun_to_udp = tokio::spawn(async move {
             let mut buf = vec![0u8; 2000];
             loop {
                 match tun_read.read(&mut buf).await {
@@ -1645,14 +1722,18 @@ table ip {table} {{
             }
         });
 
+        // Track last heartbeat response for connection loss detection
+        let last_heartbeat_response = Arc::new(RwLock::new(Instant::now()));
+
         // Spawn UDP -> TUN task
         let tun_write = tun.clone();
         let socket_read = socket.clone();
         let cipher_decrypt = cipher.clone();
         let stats_udp = shared_stats.clone();
         let addr_tracker_udp = addr_tracker.clone();
+        let last_hb_udp = last_heartbeat_response.clone();
 
-        let udp_to_tun = tokio::spawn(async move {
+        let mut udp_to_tun = tokio::spawn(async move {
             let mut buf = vec![0u8; 2000];
             loop {
                 match socket_read.recv_from(&mut buf).await {
@@ -1669,11 +1750,14 @@ table ip {table} {{
                         };
 
                         if packet.header.flag.is_data() {
+                            // Data packet also counts as server being alive
+                            *last_hb_udp.write().await = Instant::now();
                             if let Err(e) = tun_write.write(&packet.payload).await {
                                 log::error!("TUN write error: {}", e);
                             }
                         } else if packet.header.flag.is_push() && packet.header.flag.is_ack() {
                             // Heartbeat response - connection is alive
+                            *last_hb_udp.write().await = Instant::now();
                             log::debug!("Received heartbeat response");
                         } else if packet.header.flag.is_probe_ack() {
                             // Probe response - record for loss detection (only if probing enabled)
@@ -1782,10 +1866,41 @@ table ip {table} {{
             None
         };
 
-        // Wait for shutdown or error
+        // Spawn heartbeat timeout monitor task
+        let heartbeat_timeout = Duration::from_secs(heartbeat_interval.as_secs() * 3);
+        let last_hb_monitor = last_heartbeat_response.clone();
+        let (timeout_tx, mut timeout_rx) = tokio::sync::mpsc::channel::<()>(1);
+
+        let timeout_monitor = tokio::spawn(async move {
+            let mut ticker = interval(Duration::from_secs(5)); // Check every 5 seconds
+            loop {
+                ticker.tick().await;
+                let last = *last_hb_monitor.read().await;
+                if last.elapsed() > heartbeat_timeout {
+                    log::warn!(
+                        "Heartbeat timeout: no response for {:?} (threshold: {:?})",
+                        last.elapsed(),
+                        heartbeat_timeout
+                    );
+                    let _ = timeout_tx.send(()).await;
+                    break;
+                }
+            }
+        });
+
+        // Get abort handles so we can abort tasks later
+        let tun_to_udp_abort = tun_to_udp.abort_handle();
+        let udp_to_tun_abort = udp_to_tun.abort_handle();
+        let heartbeat_abort = heartbeat.abort_handle();
+        let timeout_monitor_abort = timeout_monitor.abort_handle();
+        let probe_abort = probe_task.as_ref().map(|t| t.abort_handle());
+
+        // Wait for shutdown, error, or heartbeat timeout
+        let connection_lost;
         tokio::select! {
             _ = shutdown_rx.recv() => {
                 log::info!("Client shutdown requested");
+                connection_lost = false;
 
                 // Send FIN packet to a random server address
                 let fin = Packet::finish_request(sid);
@@ -1797,17 +1912,44 @@ table ip {table} {{
                     let _ = socket.send_to(&encrypted, target_addr).await;
                 }
             }
-            _ = tun_to_udp => {
-                log::error!("TUN to UDP task ended unexpectedly");
+            _ = timeout_rx.recv() => {
+                log::error!("Connection lost: heartbeat timeout");
+                connection_lost = true;
             }
-            _ = udp_to_tun => {
+            _ = &mut tun_to_udp => {
+                log::error!("TUN to UDP task ended unexpectedly");
+                connection_lost = true;
+            }
+            _ = &mut udp_to_tun => {
                 log::error!("UDP to TUN task ended unexpectedly");
+                connection_lost = true;
             }
         }
 
-        heartbeat.abort();
+        // Abort all tasks to release Arc<TunDevice> references
+        tun_to_udp_abort.abort();
+        udp_to_tun_abort.abort();
+        heartbeat_abort.abort();
+        timeout_monitor_abort.abort();
+        if let Some(abort) = probe_abort {
+            abort.abort();
+        }
+
+        // Wait for tasks to complete (they are now aborted)
+        let _ = tun_to_udp.await;
+        let _ = udp_to_tun.await;
+        let _ = heartbeat.await;
+        let _ = timeout_monitor.await;
         if let Some(task) = probe_task {
-            task.abort();
+            let _ = task.await;
+        }
+
+        if connection_lost {
+            self.emit_event(VpnEvent::Disconnected {
+                reason: "Connection lost".to_string(),
+            })
+            .await;
+            return Err(Error::ConnectionLost("heartbeat timeout".to_string()));
         }
 
         self.emit_event(VpnEvent::Disconnected {

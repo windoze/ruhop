@@ -56,6 +56,10 @@ pub enum Error {
     #[error("shutdown requested")]
     Shutdown,
 
+    /// Connection lost (heartbeat timeout)
+    #[error("connection lost: {0}")]
+    ConnectionLost(String),
+
     /// Invalid state
     #[error("invalid state: {0}")]
     InvalidState(String),
@@ -82,8 +86,13 @@ impl Error {
     pub fn is_recoverable(&self) -> bool {
         matches!(
             self,
-            Error::Timeout(_) | Error::Connection(_) | Error::Session(_)
+            Error::Timeout(_) | Error::Connection(_) | Error::Session(_) | Error::ConnectionLost(_)
         )
+    }
+
+    /// Check if this error indicates a lost connection that should trigger reconnect
+    pub fn should_reconnect(&self) -> bool {
+        matches!(self, Error::ConnectionLost(_) | Error::Timeout(_))
     }
 
     /// Check if this is a configuration error
