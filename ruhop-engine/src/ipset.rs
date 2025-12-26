@@ -6,10 +6,19 @@
 //! - ipset (fallback): Uses the legacy `ipset` command
 //!
 //! The backend is auto-detected at runtime.
+//!
+//! To avoid process flooding under heavy DNS traffic, this module uses an
+//! [`IpsetCommandQueue`] that batches IP addresses and rate-limits command
+//! execution.
 
+use std::collections::HashSet;
 use std::io::Write;
-use std::net::IpAddr;
+use std::net::{IpAddr, Ipv4Addr};
 use std::process::{Command, Stdio};
+use std::sync::Arc;
+use std::time::Duration;
+use tokio::sync::mpsc;
+use tokio::sync::Mutex;
 
 /// IP set backend type
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -343,6 +352,177 @@ impl IpsetManager {
     }
 }
 
+/// Default minimum interval between command executions (milliseconds)
+const DEFAULT_MIN_INTERVAL_MS: u64 = 100;
+
+/// Default maximum batch size before forcing a flush
+const DEFAULT_MAX_BATCH_SIZE: usize = 1000;
+
+/// Default channel capacity for queued IPs
+const DEFAULT_CHANNEL_CAPACITY: usize = 10000;
+
+/// Configuration for the IP set command queue
+#[derive(Debug, Clone)]
+pub struct IpsetQueueConfig {
+    /// Minimum interval between command executions
+    pub min_interval: Duration,
+    /// Maximum number of IPs to batch before forcing a flush
+    pub max_batch_size: usize,
+    /// Channel capacity for queued IPs
+    pub channel_capacity: usize,
+}
+
+impl Default for IpsetQueueConfig {
+    fn default() -> Self {
+        Self {
+            min_interval: Duration::from_millis(DEFAULT_MIN_INTERVAL_MS),
+            max_batch_size: DEFAULT_MAX_BATCH_SIZE,
+            channel_capacity: DEFAULT_CHANNEL_CAPACITY,
+        }
+    }
+}
+
+/// A queue that batches IP addresses and rate-limits ipset command execution.
+///
+/// This prevents process flooding when many DNS queries resolve simultaneously.
+/// IPs are collected and deduplicated, then flushed to the ipset either:
+/// - When the batch reaches `max_batch_size`
+/// - After `min_interval` has passed since the last flush
+/// - When the queue is explicitly flushed
+pub struct IpsetCommandQueue {
+    /// Sender for queuing IPs
+    tx: mpsc::Sender<IpAddr>,
+    /// Handle to the background worker task
+    _worker_handle: tokio::task::JoinHandle<()>,
+}
+
+impl IpsetCommandQueue {
+    /// Create a new command queue with an existing IpsetManager
+    ///
+    /// # Arguments
+    /// * `manager` - The IpsetManager to use for adding IPs
+    /// * `config` - Queue configuration
+    pub fn new(manager: Arc<Mutex<IpsetManager>>, config: IpsetQueueConfig) -> Self {
+        let (tx, rx) = mpsc::channel(config.channel_capacity);
+
+        let worker_handle = tokio::spawn(Self::worker(manager, rx, config));
+
+        Self {
+            tx,
+            _worker_handle: worker_handle,
+        }
+    }
+
+    /// Create a new command queue with default configuration
+    pub fn with_defaults(manager: Arc<Mutex<IpsetManager>>) -> Self {
+        Self::new(manager, IpsetQueueConfig::default())
+    }
+
+    /// Queue IP addresses to be added to the ipset
+    ///
+    /// This method is non-blocking and returns immediately.
+    /// IPs are batched and the actual command execution happens asynchronously.
+    ///
+    /// # Arguments
+    /// * `ips` - IP addresses to add
+    ///
+    /// # Returns
+    /// Number of IPs successfully queued (may be less than input if queue is full)
+    pub fn queue_ips(&self, ips: &[IpAddr]) -> usize {
+        let mut queued = 0;
+        for ip in ips {
+            // Use try_send to avoid blocking
+            if self.tx.try_send(*ip).is_ok() {
+                queued += 1;
+            } else {
+                // Channel full, log and skip remaining
+                log::warn!(
+                    "IP set queue full, dropping {} IPs",
+                    ips.len() - queued
+                );
+                break;
+            }
+        }
+        queued
+    }
+
+    /// Queue a single IP address
+    pub fn queue_ip(&self, ip: IpAddr) -> bool {
+        self.tx.try_send(ip).is_ok()
+    }
+
+    /// Get a clone of the sender for use in other tasks
+    pub fn sender(&self) -> mpsc::Sender<IpAddr> {
+        self.tx.clone()
+    }
+
+    /// Background worker that batches and executes ipset commands
+    async fn worker(
+        manager: Arc<Mutex<IpsetManager>>,
+        mut rx: mpsc::Receiver<IpAddr>,
+        config: IpsetQueueConfig,
+    ) {
+        let mut pending_ips: HashSet<Ipv4Addr> = HashSet::new();
+        let mut interval = tokio::time::interval(config.min_interval);
+        interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+
+        loop {
+            tokio::select! {
+                // Receive IPs from the channel
+                maybe_ip = rx.recv() => {
+                    match maybe_ip {
+                        Some(IpAddr::V4(ipv4)) => {
+                            pending_ips.insert(ipv4);
+
+                            // Flush if batch is full
+                            if pending_ips.len() >= config.max_batch_size {
+                                Self::flush_batch(&manager, &mut pending_ips).await;
+                                interval.reset();
+                            }
+                        }
+                        Some(IpAddr::V6(_)) => {
+                            // IPv6 addresses are silently ignored
+                        }
+                        None => {
+                            // Channel closed, flush remaining and exit
+                            if !pending_ips.is_empty() {
+                                Self::flush_batch(&manager, &mut pending_ips).await;
+                            }
+                            log::debug!("IP set command queue worker shutting down");
+                            break;
+                        }
+                    }
+                }
+
+                // Periodic flush
+                _ = interval.tick() => {
+                    if !pending_ips.is_empty() {
+                        Self::flush_batch(&manager, &mut pending_ips).await;
+                    }
+                }
+            }
+        }
+    }
+
+    /// Flush pending IPs to the ipset
+    async fn flush_batch(manager: &Arc<Mutex<IpsetManager>>, pending_ips: &mut HashSet<Ipv4Addr>) {
+        if pending_ips.is_empty() {
+            return;
+        }
+
+        let ips: Vec<IpAddr> = pending_ips.iter().map(|ip| IpAddr::V4(*ip)).collect();
+        let count = ips.len();
+
+        // Execute in a blocking task to avoid blocking the async runtime
+        let mgr = manager.lock().await;
+        mgr.add_ips(&ips);
+        drop(mgr);
+
+        log::debug!("Flushed {} IPs to ipset", count);
+        pending_ips.clear();
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -358,5 +538,13 @@ mod tests {
         // This test just ensures selection doesn't panic
         // The result depends on the system
         let _backend = IpsetBackend::select(None);
+    }
+
+    #[test]
+    fn test_queue_config_default() {
+        let config = IpsetQueueConfig::default();
+        assert_eq!(config.min_interval, Duration::from_millis(100));
+        assert_eq!(config.max_batch_size, 1000);
+        assert_eq!(config.channel_capacity, 10000);
     }
 }

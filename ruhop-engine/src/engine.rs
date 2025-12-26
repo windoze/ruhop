@@ -615,7 +615,7 @@ impl VpnEngine {
         // Setup ipset manager if configured (Linux only)
         #[cfg(target_os = "linux")]
         let proxy = {
-            use crate::ipset::IpsetManager;
+            use crate::ipset::{IpsetCommandQueue, IpsetManager};
             use hop_dns::ResolvedIps;
 
             if let Some(ref ipset_name) = dns_proxy_config.ipset {
@@ -625,22 +625,23 @@ impl VpnEngine {
                         let (resolved_tx, mut resolved_rx) =
                             tokio::sync::mpsc::channel::<ResolvedIps>(100);
 
-                        // Spawn ipset update task
+                        // Create ipset command queue for batched, rate-limited execution
                         let ipset_manager = Arc::new(tokio::sync::Mutex::new(ipset_manager));
-                        let ipset_manager_clone = ipset_manager.clone();
+                        let ipset_queue = IpsetCommandQueue::with_defaults(ipset_manager);
+
+                        // Spawn task to forward resolved IPs to the queue
                         tokio::spawn(async move {
                             while let Some(resolved) = resolved_rx.recv().await {
                                 let ips = resolved.all_ips();
                                 if !ips.is_empty() {
-                                    let mgr = ipset_manager_clone.lock().await;
-                                    mgr.add_ips(&ips);
+                                    ipset_queue.queue_ips(&ips);
                                 }
                             }
                         });
 
                         self.log(
                             LogLevel::Info,
-                            format!("IP set manager initialized for set '{}'", ipset_name),
+                            format!("IP set manager initialized for set '{}' with command queue", ipset_name),
                         )
                         .await;
 
