@@ -47,6 +47,9 @@ enum Commands {
         /// Path to the control socket
         #[arg(short, long, default_value = DEFAULT_SOCKET_PATH)]
         socket: String,
+        /// Output in JSON format
+        #[arg(short = 'j', long)]
+        json: bool,
     },
 
     /// Generate a sample configuration file
@@ -169,7 +172,7 @@ async fn async_main() -> Result<()> {
     match cli.command {
         Commands::Server => run_server(cli.config).await,
         Commands::Client => run_client(cli.config).await,
-        Commands::Status { socket } => show_status(socket).await,
+        Commands::Status { socket, json } => show_status(socket, json).await,
         Commands::GenConfig { output } => generate_config(output),
         Commands::Encode => encode_config(cli.config),
         Commands::Decode { url } => decode_url(&url),
@@ -371,11 +374,16 @@ fn load_config(path: &PathBuf) -> Result<Config> {
         .with_context(|| format!("Failed to load configuration from {:?}", path))
 }
 
-async fn show_status(socket_path: String) -> Result<()> {
+async fn show_status(socket_path: String, json: bool) -> Result<()> {
     let client = ControlClient::new(&socket_path);
 
     match client.status().await {
         Ok(status) => {
+            if json {
+                println!("{}", serde_json::to_string_pretty(&status).unwrap());
+                return Ok(());
+            }
+
             println!("Ruhop VPN Status");
             println!("================");
             println!("Role:            {}", status.role);
@@ -402,6 +410,15 @@ async fn show_status(socket_path: String) -> Result<()> {
                 println!("Server Info");
                 println!("-----------");
                 println!("Active Sessions: {}", status.active_sessions);
+            }
+
+            if status.role == "client" && !status.blacklisted_endpoints.is_empty() {
+                println!();
+                println!("Blacklisted Endpoints");
+                println!("---------------------");
+                for ep in &status.blacklisted_endpoints {
+                    println!("  {} (loss: {:.0}%)", ep.addr, ep.loss_rate * 100.0);
+                }
             }
 
             Ok(())

@@ -22,7 +22,7 @@ use hop_dns::{DnsClient, DnsProxy};
 use hop_tun::{NatManager, Route, RouteManager, TunConfig, TunDevice};
 
 use crate::config::{ClientConfig, CommonConfig, Config, ServerConfig};
-use crate::control::{ControlServer, ControlState, SharedStats, SharedStatsRef, DEFAULT_SOCKET_PATH};
+use crate::control::{BlacklistedEndpoint, ControlServer, ControlState, SharedStats, SharedStatsRef, DEFAULT_SOCKET_PATH};
 use crate::error::{Error, Result};
 use crate::event::{EventHandler, LogLevel, LoggingEventHandler, VpnEvent, VpnState, VpnStats};
 use crate::script::{run_connect_script, run_disconnect_script, ScriptParams};
@@ -1693,13 +1693,15 @@ table ip {table} {{
                 cfg.min_probes,
             )));
 
-            // Set up blacklist callback for events
+            // Set up blacklist callback for events and control state updates
             let event_handler_bl = self.event_handler.clone();
+            let control_state_bl = self.control_state.clone();
             let blacklist_duration = cfg.blacklist_duration;
             {
                 let mut t = tracker.write().await;
                 t.set_blacklist_callback(Box::new(move |addr, is_blacklisted, loss_rate| {
                     let handler = event_handler_bl.clone();
+                    let ctrl_state = control_state_bl.clone();
                     let event = if is_blacklisted {
                         VpnEvent::AddressBlacklisted {
                             addr,
@@ -1709,9 +1711,25 @@ table ip {table} {{
                     } else {
                         VpnEvent::AddressRecovered { addr }
                     };
-                    // Fire-and-forget event emission
+                    // Fire-and-forget event emission and control state update
                     tokio::spawn(async move {
                         handler.on_event(event).await;
+                        // Update control state blacklist
+                        let mut state = ctrl_state.write().await;
+                        if is_blacklisted {
+                            // Add to blacklist if not already present
+                            let addr_str = addr.to_string();
+                            if !state.blacklisted_endpoints.iter().any(|e| e.addr == addr_str) {
+                                state.blacklisted_endpoints.push(BlacklistedEndpoint {
+                                    addr: addr_str,
+                                    loss_rate,
+                                });
+                            }
+                        } else {
+                            // Remove from blacklist
+                            let addr_str = addr.to_string();
+                            state.blacklisted_endpoints.retain(|e| e.addr != addr_str);
+                        }
                     });
                 }));
             }

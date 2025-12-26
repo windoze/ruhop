@@ -2276,6 +2276,7 @@ dependencies = [
  "hop-tun",
  "qrcode",
  "ruhop-engine",
+ "serde_json",
  "tokio",
  "tracing",
  "tracing-appender",

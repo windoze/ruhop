@@ -83,6 +83,18 @@ pub struct StatusInfo {
     pub tunnel_ip: Option<String>,
     /// Peer IP (if connected)
     pub peer_ip: Option<String>,
+    /// Blacklisted endpoints (client only)
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub blacklisted_endpoints: Vec<BlacklistedEndpoint>,
+}
+
+/// Information about a blacklisted endpoint
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BlacklistedEndpoint {
+    /// The endpoint address
+    pub addr: String,
+    /// Packet loss rate (0.0 - 1.0)
+    pub loss_rate: f32,
 }
 
 /// Information about a connected client
@@ -123,6 +135,8 @@ pub struct ControlState {
     pub clients: Vec<ClientInfo>,
     /// Shutdown sender
     pub shutdown_tx: Option<tokio::sync::broadcast::Sender<()>>,
+    /// Blacklisted endpoints (client only)
+    pub blacklisted_endpoints: Vec<BlacklistedEndpoint>,
 }
 
 impl ControlState {
@@ -136,6 +150,7 @@ impl ControlState {
             peer_ip: None,
             clients: Vec::new(),
             shutdown_tx: None,
+            blacklisted_endpoints: Vec::new(),
         }
     }
 
@@ -152,6 +167,7 @@ impl ControlState {
             active_sessions: stats.active_sessions,
             tunnel_ip: self.tunnel_ip.map(|ip| ip.to_string()),
             peer_ip: self.peer_ip.map(|ip| ip.to_string()),
+            blacklisted_endpoints: self.blacklisted_endpoints.clone(),
         }
     }
 }
