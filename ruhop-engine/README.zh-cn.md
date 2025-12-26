@@ -155,6 +155,7 @@ log_level = "info"
 obfuscation = false
 heartbeat_interval = 30
 # tun_device = "ruhop0"            # 可选：TUN 设备名称（macOS 上忽略）
+# use_nftables = true              # 仅 Linux：true=nftables, false=iptables, 不设置=自动检测
 
 [server]
 listen = "0.0.0.0"                # 监听 IP 地址
@@ -211,7 +212,7 @@ filter_ipv6 = true                  # 从响应中移除 AAAA 记录
 ipset = "vpn_resolved"              # 将解析的 IP 添加到此集合
 ```
 
-**IP 集合（仅 Linux）：** 配置 `ipset` 后，解析的 IPv4 地址会被添加到指定的集合中。实现会先尝试 nftables（在表 "ruhop" 中创建集合），如果不可用则回退到 ipset 命令。
+**IP 集合（仅 Linux）：** 配置 `ipset` 后，解析的 IPv4 地址会被添加到指定的集合中。后端由 `[common]` 中的 `use_nftables` 控制：`true` 使用 nftables（在表 "ruhop" 中创建集合），`false` 使用 ipset 命令，不设置则自动检测。
 
 ### 端口跳跃
 

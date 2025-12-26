@@ -276,6 +276,21 @@ sudo systemctl start ruhop
 
 When running the Ruhop client on a router (e.g., OpenWRT) to provide VPN access for other devices on the network, additional configuration is required.
 
+### Firewall Backend Selection (Linux)
+
+Ruhop uses either nftables or iptables for NAT, MSS clamping, and IP sets. By default, it auto-detects (tries nftables first, falls back to iptables). **Important**: nftables and iptables rules are not interchangeable, so you should explicitly set the backend to match your system:
+
+```toml
+[common]
+# Explicitly select firewall backend:
+# - true: Use nftables (modern, preferred)
+# - false: Use iptables/ipset (legacy)
+# - Not set: Auto-detect (may break if wrong backend selected)
+use_nftables = false  # Use this for systems with iptables
+```
+
+On OpenWRT with fw4 (nftables-based), use `use_nftables = true`. On older systems or those using iptables, use `use_nftables = false`.
+
 ### Required Setup
 
 1. **Enable IP forwarding** (usually already enabled on routers):

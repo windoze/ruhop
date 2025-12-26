@@ -27,6 +27,14 @@ heartbeat_interval = 30
 # log_file = "/var/log/ruhop"
 # log_rotation = "daily"  # Options: "hourly", "daily", "never"
 
+# Firewall backend selection (Linux only)
+# Explicitly choose between nftables and iptables/ipset:
+# - true: Use nftables (modern, recommended for newer systems)
+# - false: Use iptables/ipset (legacy, for older systems)
+# If not set, auto-detects (tries nftables first, falls back to iptables)
+# NOTE: nftables and iptables rules are NOT interchangeable!
+# use_nftables = true
+
 # =============================================================================
 # Server Configuration
 # =============================================================================

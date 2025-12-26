@@ -21,35 +21,71 @@ pub enum IpsetBackend {
 }
 
 impl IpsetBackend {
-    /// Detect the available backend
+    /// Select the IP set backend based on explicit configuration
     ///
-    /// Tries nftables first, then falls back to ipset.
-    pub fn detect() -> Option<Self> {
-        // Try nftables first
-        if Command::new("nft")
+    /// # Arguments
+    /// * `use_nftables` - Explicit backend selection:
+    ///   - `Some(true)`: Use nftables (fails if unavailable)
+    ///   - `Some(false)`: Use ipset (fails if unavailable)
+    ///   - `None`: Auto-detect (tries nftables first, falls back to ipset)
+    ///
+    /// # Returns
+    /// The selected backend, or an error message if the requested backend is unavailable
+    pub fn select(use_nftables: Option<bool>) -> Result<Self, String> {
+        match use_nftables {
+            Some(true) => {
+                // Explicitly requested nftables
+                if Self::is_nftables_available() {
+                    log::info!("Using nftables backend for IP sets (explicitly configured)");
+                    Ok(IpsetBackend::Nftables)
+                } else {
+                    Err("nftables backend requested but 'nft' command is not available".into())
+                }
+            }
+            Some(false) => {
+                // Explicitly requested ipset
+                if Self::is_ipset_available() {
+                    log::info!("Using ipset backend for IP sets (explicitly configured)");
+                    Ok(IpsetBackend::Ipset)
+                } else {
+                    Err("ipset backend requested but 'ipset' command is not available".into())
+                }
+            }
+            None => {
+                // Auto-detect: try nftables first, then ipset
+                if Self::is_nftables_available() {
+                    log::info!("Using nftables backend for IP sets (auto-detected)");
+                    Ok(IpsetBackend::Nftables)
+                } else if Self::is_ipset_available() {
+                    log::info!("Using ipset backend for IP sets (auto-detected, nft not available)");
+                    Ok(IpsetBackend::Ipset)
+                } else {
+                    Err("no IP set backend available: neither 'nft' nor 'ipset' command found".into())
+                }
+            }
+        }
+    }
+
+    /// Check if nftables is available
+    fn is_nftables_available() -> bool {
+        Command::new("nft")
             .arg("--version")
             .stdout(Stdio::null())
             .stderr(Stdio::null())
             .status()
             .map(|s| s.success())
             .unwrap_or(false)
-        {
-            return Some(IpsetBackend::Nftables);
-        }
+    }
 
-        // Fallback to ipset
-        if Command::new("ipset")
+    /// Check if ipset is available
+    fn is_ipset_available() -> bool {
+        Command::new("ipset")
             .arg("--version")
             .stdout(Stdio::null())
             .stderr(Stdio::null())
             .status()
             .map(|s| s.success())
             .unwrap_or(false)
-        {
-            return Some(IpsetBackend::Ipset);
-        }
-
-        None
     }
 
     /// Get a human-readable name for the backend
@@ -74,16 +110,19 @@ pub struct IpsetManager {
 impl IpsetManager {
     /// Create a new IP set manager
     ///
-    /// Automatically detects the available backend and creates the set if needed.
+    /// Selects the backend based on explicit configuration and creates the set if needed.
     ///
     /// # Arguments
     /// * `set_name` - Name of the IP set to use
+    /// * `use_nftables` - Backend selection:
+    ///   - `Some(true)`: Use nftables
+    ///   - `Some(false)`: Use ipset
+    ///   - `None`: Auto-detect
     ///
     /// # Errors
-    /// Returns an error if no backend is available or set creation fails.
-    pub fn new(set_name: &str) -> Result<Self, String> {
-        let backend = IpsetBackend::detect()
-            .ok_or_else(|| "neither nft nor ipset command is available".to_string())?;
+    /// Returns an error if the requested backend is unavailable or set creation fails.
+    pub fn new(set_name: &str, use_nftables: Option<bool>) -> Result<Self, String> {
+        let backend = IpsetBackend::select(use_nftables)?;
 
         let manager = Self {
             backend,
@@ -315,9 +354,9 @@ mod tests {
     }
 
     #[test]
-    fn test_backend_detect() {
-        // This test just ensures detection doesn't panic
+    fn test_backend_select() {
+        // This test just ensures selection doesn't panic
         // The result depends on the system
-        let _backend = IpsetBackend::detect();
+        let _backend = IpsetBackend::select(None);
     }
 }

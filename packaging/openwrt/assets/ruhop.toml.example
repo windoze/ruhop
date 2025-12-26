@@ -36,6 +36,12 @@ heartbeat_interval = 30
 # log_file = "/var/log/ruhop"
 # log_rotation = "daily"  # Options: "hourly", "daily", "never"
 
+# Firewall backend selection
+# OpenWRT with fw4 uses nftables, so set this to true
+# Older OpenWRT with fw3 uses iptables, so set this to false
+# If not set, auto-detects (but explicit config is recommended)
+use_nftables = true
+
 # =============================================================================
 # Server Configuration
 # =============================================================================

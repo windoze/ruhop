@@ -130,6 +130,14 @@ log_level = "info"
 # Only used when log_file is set.
 # log_rotation = "daily"
 
+# Firewall backend selection (Linux only)
+# Explicitly choose between nftables and iptables/ipset:
+# - true: Use nftables (modern, preferred)
+# - false: Use iptables/ipset (legacy)
+# If not set, auto-detects (tries nftables first, falls back to iptables)
+# NOTE: Auto-detection may break some tools as nftables and iptables rules are *not* interchangeable.
+# use_nftables = true
+
 # Enable packet obfuscation (default: false)
 obfuscation = false
 
@@ -297,6 +305,17 @@ pub struct CommonConfig {
     /// Only used when `log_file` is set.
     #[serde(default = "default_log_rotation")]
     pub log_rotation: String,
+
+    /// Firewall backend selection (Linux only)
+    ///
+    /// Explicitly select the firewall backend for NAT, MSS clamping, and IP sets:
+    /// - `true`: Use nftables (modern, preferred)
+    /// - `false`: Use iptables/ipset (legacy)
+    /// - Not set (default): Auto-detect (tries nftables first, falls back to iptables)
+    ///
+    /// This option is ignored on non-Linux platforms.
+    #[serde(default)]
+    pub use_nftables: Option<bool>,
 }
 
 impl Default for CommonConfig {
@@ -311,6 +330,7 @@ impl Default for CommonConfig {
             tun_device: None,
             log_file: None,
             log_rotation: default_log_rotation(),
+            use_nftables: None,
         }
     }
 }

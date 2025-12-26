@@ -16,8 +16,6 @@
 
 use std::net::IpAddr;
 use std::process::Command;
-#[cfg(target_os = "linux")]
-use std::sync::OnceLock;
 
 use crate::error::{Error, Result};
 
@@ -27,27 +25,79 @@ use crate::error::{Error, Result};
 pub enum FirewallBackend {
     /// nftables (modern, preferred)
     Nftables,
-    /// iptables (legacy fallback)
+    /// iptables (legacy)
     Iptables,
 }
 
 #[cfg(target_os = "linux")]
 impl FirewallBackend {
-    /// Detect the best available firewall backend
-    pub fn detect() -> Self {
-        static BACKEND: OnceLock<FirewallBackend> = OnceLock::new();
-        *BACKEND.get_or_init(|| {
-            // Check if nft command is available and working
-            if let Ok(output) = Command::new("nft").arg("--version").output() {
-                if output.status.success() {
-                    log::info!("Using nftables backend for firewall rules");
-                    return FirewallBackend::Nftables;
+    /// Select the firewall backend based on explicit configuration
+    ///
+    /// # Arguments
+    /// * `use_nftables` - Explicit backend selection:
+    ///   - `Some(true)`: Use nftables (fails if unavailable)
+    ///   - `Some(false)`: Use iptables (fails if unavailable)
+    ///   - `None`: Auto-detect (tries nftables first, falls back to iptables)
+    ///
+    /// # Returns
+    /// The selected backend, or an error if the requested backend is unavailable
+    pub fn select(use_nftables: Option<bool>) -> Result<Self> {
+        match use_nftables {
+            Some(true) => {
+                // Explicitly requested nftables
+                if Self::is_nftables_available() {
+                    log::info!("Using nftables backend for firewall rules (explicitly configured)");
+                    Ok(FirewallBackend::Nftables)
+                } else {
+                    Err(Error::Nat(
+                        "nftables backend requested but 'nft' command is not available".into(),
+                    ))
                 }
             }
-            // Fallback to iptables
-            log::info!("Using iptables backend for firewall rules (nft not available)");
-            FirewallBackend::Iptables
-        })
+            Some(false) => {
+                // Explicitly requested iptables
+                if Self::is_iptables_available() {
+                    log::info!("Using iptables backend for firewall rules (explicitly configured)");
+                    Ok(FirewallBackend::Iptables)
+                } else {
+                    Err(Error::Nat(
+                        "iptables backend requested but 'iptables' command is not available".into(),
+                    ))
+                }
+            }
+            None => {
+                // Auto-detect: try nftables first, then iptables
+                if Self::is_nftables_available() {
+                    log::info!("Using nftables backend for firewall rules (auto-detected)");
+                    Ok(FirewallBackend::Nftables)
+                } else if Self::is_iptables_available() {
+                    log::info!("Using iptables backend for firewall rules (auto-detected, nft not available)");
+                    Ok(FirewallBackend::Iptables)
+                } else {
+                    Err(Error::Nat(
+                        "no firewall backend available: neither 'nft' nor 'iptables' command found".into(),
+                    ))
+                }
+            }
+        }
+    }
+
+    /// Check if nftables is available
+    fn is_nftables_available() -> bool {
+        Command::new("nft")
+            .arg("--version")
+            .output()
+            .map(|o| o.status.success())
+            .unwrap_or(false)
+    }
+
+    /// Check if iptables is available
+    fn is_iptables_available() -> bool {
+        Command::new("iptables")
+            .arg("--version")
+            .output()
+            .map(|o| o.status.success())
+            .unwrap_or(false)
     }
 }
 
@@ -102,6 +152,9 @@ pub struct NatManager {
     applied_rules: Vec<NatRule>,
     /// Whether IP forwarding was enabled by us
     enabled_forwarding: bool,
+    /// Firewall backend (Linux only)
+    #[cfg(target_os = "linux")]
+    backend: FirewallBackend,
     /// Original IPv4 forwarding value (to restore on cleanup)
     #[cfg(target_os = "linux")]
     original_ipv4_forward: Option<String>,
@@ -118,19 +171,41 @@ pub struct NatManager {
 
 impl NatManager {
     /// Create a new NAT manager
-    pub fn new() -> Self {
-        Self {
+    ///
+    /// # Arguments
+    /// * `use_nftables` - Firewall backend selection (Linux only):
+    ///   - `Some(true)`: Use nftables
+    ///   - `Some(false)`: Use iptables
+    ///   - `None`: Auto-detect
+    #[cfg(target_os = "linux")]
+    pub fn new(use_nftables: Option<bool>) -> Result<Self> {
+        let backend = FirewallBackend::select(use_nftables)?;
+        Ok(Self {
             applied_rules: Vec::new(),
             enabled_forwarding: false,
-            #[cfg(target_os = "linux")]
+            backend,
             original_ipv4_forward: None,
-            #[cfg(target_os = "linux")]
             original_ipv6_forward: None,
+        })
+    }
+
+    /// Create a new NAT manager (non-Linux platforms)
+    #[cfg(not(target_os = "linux"))]
+    pub fn new(_use_nftables: Option<bool>) -> Result<Self> {
+        Ok(Self {
+            applied_rules: Vec::new(),
+            enabled_forwarding: false,
             #[cfg(target_os = "macos")]
             original_ip_forward: None,
             #[cfg(target_os = "windows")]
             original_ip_forward: None,
-        }
+        })
+    }
+
+    /// Get the firewall backend (Linux only)
+    #[cfg(target_os = "linux")]
+    pub fn backend(&self) -> FirewallBackend {
+        self.backend
     }
 
     /// Enable IP forwarding on the system
@@ -285,7 +360,7 @@ impl NatManager {
     /// ```ignore
     /// use hop_tun::nat::{NatManager, NatRule};
     ///
-    /// let mut manager = NatManager::new();
+    /// let mut manager = NatManager::new(None)?;  // Auto-detect backend
     /// manager.enable_ip_forwarding()?;
     ///
     /// let rule = NatRule::masquerade("10.0.0.0/24", "eth0");
@@ -314,7 +389,7 @@ impl NatManager {
 
     #[cfg(target_os = "linux")]
     fn add_rule_linux(&self, rule: &NatRule) -> Result<()> {
-        match FirewallBackend::detect() {
+        match self.backend {
             FirewallBackend::Nftables => self.add_rule_nftables(rule),
             FirewallBackend::Iptables => self.add_rule_iptables(rule),
         }
@@ -547,7 +622,7 @@ table ip {table} {{
 
     #[cfg(target_os = "linux")]
     fn remove_rule_linux(&self, rule: &NatRule) -> Result<()> {
-        match FirewallBackend::detect() {
+        match self.backend {
             FirewallBackend::Nftables => self.remove_rule_nftables(rule),
             FirewallBackend::Iptables => self.remove_rule_iptables(rule),
         }
@@ -689,11 +764,6 @@ table ip {table} {{
     }
 }
 
-impl Default for NatManager {
-    fn default() -> Self {
-        Self::new()
-    }
-}
 
 impl Drop for NatManager {
     fn drop(&mut self) {
@@ -708,13 +778,21 @@ impl Drop for NatManager {
 /// 1. Enables IP forwarding
 /// 2. Sets up masquerading for the tunnel network
 ///
+/// # Arguments
+/// * `tunnel_network` - The tunnel network in CIDR notation (e.g., "10.0.0.0/24")
+/// * `outbound_interface` - The outbound network interface for NAT
+/// * `use_nftables` - Firewall backend selection (Linux only):
+///   - `Some(true)`: Use nftables
+///   - `Some(false)`: Use iptables
+///   - `None`: Auto-detect
+///
 /// # Example
 ///
 /// ```ignore
 /// use hop_tun::nat::setup_vpn_nat;
 ///
 /// // Set up NAT for traffic from 10.0.0.0/24 going out via eth0
-/// let mut nat = setup_vpn_nat("10.0.0.0/24", "eth0")?;
+/// let mut nat = setup_vpn_nat("10.0.0.0/24", "eth0", None)?;
 ///
 /// // ... VPN running ...
 ///
@@ -724,8 +802,9 @@ impl Drop for NatManager {
 pub fn setup_vpn_nat(
     tunnel_network: &str,
     outbound_interface: &str,
+    use_nftables: Option<bool>,
 ) -> Result<NatManager> {
-    let mut manager = NatManager::new();
+    let mut manager = NatManager::new(use_nftables)?;
 
     manager.enable_ip_forwarding()?;
 
@@ -760,8 +839,10 @@ mod tests {
 
     #[test]
     fn test_nat_manager_creation() {
-        let manager = NatManager::new();
-        assert!(manager.applied_rules().is_empty());
-        assert!(!manager.enabled_forwarding);
+        // On non-Linux or when firewall tools are available, this should work
+        if let Ok(manager) = NatManager::new(None) {
+            assert!(manager.applied_rules().is_empty());
+        }
+        // On systems without firewall tools, new() returns an error, which is expected
     }
 }

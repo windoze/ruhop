@@ -434,19 +434,19 @@ impl VpnEngine {
     async fn setup_nat(&self, server_config: &ServerConfig) -> Result<Option<NatManager>> {
         #[cfg(target_os = "linux")]
         {
-            use hop_tun::FirewallBackend;
-
             // Detect the default outbound interface
             let out_iface = Self::detect_default_interface().await?;
 
-            let backend = FirewallBackend::detect();
+            // Create NatManager with explicit backend selection
+            let use_nftables = self.config.common.use_nftables;
+            let mut nat_manager = NatManager::new(use_nftables)
+                .map_err(|e| Error::Config(format!("Failed to initialize NAT manager: {}", e)))?;
+
             self.log(
                 LogLevel::Info,
-                format!("Setting up NAT using {:?} backend, outbound interface: {}", backend, out_iface),
+                format!("Setting up NAT using {:?} backend, outbound interface: {}", nat_manager.backend(), out_iface),
             )
             .await;
-
-            let mut nat_manager = NatManager::new();
 
             // Enable IP forwarding
             nat_manager.enable_ip_forwarding()
@@ -619,7 +619,8 @@ impl VpnEngine {
             use hop_dns::ResolvedIps;
 
             if let Some(ref ipset_name) = dns_proxy_config.ipset {
-                match IpsetManager::new(ipset_name) {
+                let use_nftables = self.config.common.use_nftables;
+                match IpsetManager::new(ipset_name, use_nftables) {
                     Ok(ipset_manager) => {
                         let (resolved_tx, mut resolved_rx) =
                             tokio::sync::mpsc::channel::<ResolvedIps>(100);
@@ -1477,14 +1478,22 @@ impl VpnEngine {
     ///
     /// This adds firewall mangle rules to clamp TCP MSS to PMTU, which prevents
     /// fragmentation issues when the VPN client acts as a NAT gateway.
-    /// Uses nftables if available, falls back to iptables.
+    /// Uses the configured firewall backend (nftables or iptables).
     #[cfg(target_os = "linux")]
     async fn setup_mss_clamping(&self, tun_name: &str) {
         use hop_tun::FirewallBackend;
 
-        match FirewallBackend::detect() {
-            FirewallBackend::Nftables => self.setup_mss_clamping_nftables(tun_name).await,
-            FirewallBackend::Iptables => self.setup_mss_clamping_iptables(tun_name).await,
+        let use_nftables = self.config.common.use_nftables;
+        match FirewallBackend::select(use_nftables) {
+            Ok(FirewallBackend::Nftables) => self.setup_mss_clamping_nftables(tun_name).await,
+            Ok(FirewallBackend::Iptables) => self.setup_mss_clamping_iptables(tun_name).await,
+            Err(e) => {
+                self.log(
+                    LogLevel::Error,
+                    format!("Failed to setup MSS clamping: {}", e),
+                )
+                .await;
+            }
         }
     }
 
@@ -1603,14 +1612,14 @@ table ip {table} {{
     }
 
     /// Remove MSS clamping rules (Linux only)
+    ///
+    /// Cleans up both nftables and iptables rules to ensure thorough cleanup
+    /// regardless of which backend was used.
     #[cfg(target_os = "linux")]
     fn cleanup_mss_clamping(tun_name: &str) {
-        use hop_tun::FirewallBackend;
-
-        match FirewallBackend::detect() {
-            FirewallBackend::Nftables => Self::cleanup_mss_clamping_nftables(),
-            FirewallBackend::Iptables => Self::cleanup_mss_clamping_iptables(tun_name),
-        }
+        // Clean up both backends to ensure thorough cleanup
+        Self::cleanup_mss_clamping_nftables();
+        Self::cleanup_mss_clamping_iptables(tun_name);
     }
 
     #[cfg(target_os = "linux")]

@@ -276,6 +276,21 @@ sudo systemctl start ruhop
 
 在路由器（如 OpenWRT）上运行 Ruhop 客户端，为网络上的其他设备提供 VPN 访问时，需要额外的配置。
 
+### 防火墙后端选择（Linux）
+
+Ruhop 使用 nftables 或 iptables 进行 NAT、MSS 钳制和 IP 集合管理。默认情况下会自动检测（优先尝试 nftables，回退到 iptables）。**重要**：nftables 和 iptables 规则不可互换，因此应明确设置后端以匹配您的系统：
+
+```toml
+[common]
+# 明确选择防火墙后端：
+# - true: 使用 nftables（现代，推荐）
+# - false: 使用 iptables/ipset（传统）
+# - 不设置: 自动检测（如果选择错误后端可能会出问题）
+use_nftables = false  # 在使用 iptables 的系统上使用此设置
+```
+
+在使用 fw4（基于 nftables）的 OpenWRT 上，使用 `use_nftables = true`。在使用 iptables 的旧系统上，使用 `use_nftables = false`。
+
 ### 必需的设置
 
 1. **启用 IP 转发**（路由器上通常已启用）：

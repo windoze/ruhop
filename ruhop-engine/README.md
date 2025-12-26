@@ -155,6 +155,7 @@ log_level = "info"
 obfuscation = false
 heartbeat_interval = 30
 # tun_device = "ruhop0"            # Optional: TUN device name (ignored on macOS)
+# use_nftables = true              # Linux only: true=nftables, false=iptables, unset=auto
 
 [server]
 listen = "0.0.0.0"                # IP address to bind
@@ -211,7 +212,7 @@ filter_ipv6 = true                  # Remove AAAA records from responses
 ipset = "vpn_resolved"              # Add resolved IPs to this set
 ```
 
-**IP Set (Linux only):** When `ipset` is configured, resolved IPv4 addresses are added to the specified set. The implementation tries nftables first (creates set in table "ruhop"), then falls back to ipset command.
+**IP Set (Linux only):** When `ipset` is configured, resolved IPv4 addresses are added to the specified set. The backend is controlled by `use_nftables` in `[common]`: `true` uses nftables (set in table "ruhop"), `false` uses the ipset command, and unset auto-detects.
 
 ### Port Hopping
 

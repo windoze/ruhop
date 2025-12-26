@@ -239,7 +239,14 @@ async fn test_privileged_route_add_remove() {
 async fn test_privileged_nat_setup() {
     use hop_tun::nat::NatManager;
 
-    let mut manager = NatManager::new();
+    // Auto-detect backend (None = auto)
+    let mut manager = match NatManager::new(None) {
+        Ok(m) => m,
+        Err(e) => {
+            println!("NAT manager creation failed (expected if no firewall tools): {:?}", e);
+            return;
+        }
+    };
 
     // Enable IP forwarding
     let forward_result = manager.enable_ip_forwarding();

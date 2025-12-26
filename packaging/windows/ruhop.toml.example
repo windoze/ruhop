@@ -21,6 +21,8 @@ heartbeat_interval = 30
 # log_file = "C:\\ProgramData\\Ruhop\\logs"
 # log_rotation = "daily"  # Options: "hourly", "daily", "never"
 
+# Note: use_nftables option is Linux-only and ignored on Windows
+
 [client]
 # Server address (hostname or IP, or array for multi-homed servers)
 server = "vpn.example.com"
