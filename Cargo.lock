@@ -1001,7 +1001,7 @@ dependencies = [
 
 [[package]]
 name = "hop-dns"
-version = "0.18.2"
+version = "0.18.3"
 dependencies = [
  "hickory-proto",
  "log",
@@ -1019,7 +1019,7 @@ dependencies = [
 
 [[package]]
 name = "hop-protocol"
-version = "0.18.2"
+version = "0.18.3"
 dependencies = [
  "aes",
  "async-trait",
@@ -1035,7 +1035,7 @@ dependencies = [
 
 [[package]]
 name = "hop-tun"
-version = "0.18.2"
+version = "0.18.3"
 dependencies = [
  "async-std",
  "block2",
@@ -2268,7 +2268,7 @@ dependencies = [
 
 [[package]]
 name = "ruhop-cli"
-version = "0.18.2"
+version = "0.18.3"
 dependencies = [
  "anyhow",
  "base64",
@@ -2286,7 +2286,7 @@ dependencies = [
 
 [[package]]
 name = "ruhop-engine"
-version = "0.18.2"
+version = "0.18.3"
 dependencies = [
  "async-trait",
  "futures",
