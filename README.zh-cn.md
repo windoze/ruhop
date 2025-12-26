@@ -122,6 +122,8 @@ on_disconnect = "/path/to/script" # 断开时运行的脚本
 
 ```
 ruhop/
+├── hop-dns/             # DNS 代理实现
+│   └── src/
 ├── hop-protocol/        # 核心协议库
 │   └── src/
 ├── hop-tun/             # TUN 设备管理
@@ -138,6 +140,7 @@ ruhop/
 
 | Crate | 描述 |
 |-------|-------------|
+| [hop-dns](hop-dns/) | DNS 代理实现，用于通过 VPN 隧道处理 DNS 请求 |
 | [hop-protocol](hop-protocol/) | 操作系统无关的协议库，用于数据包编解码、加密和会话管理 |
 | [hop-tun](hop-tun/) | 跨平台 TUN 设备管理、路由管理和 NAT 设置 |
 | [ruhop-engine](ruhop-engine/) | 高级 VPN 引擎接口，用于构建 CLI/GUI 应用 |
@@ -158,10 +161,18 @@ ruhop/
 sudo setcap 'cap_net_admin,cap_net_raw,cap_net_bind_service=eip' /path/to/ruhop
 ```
 
+注意：
+- 在非 root 权限下运行时，请确保将日志目录和控制套接字的位置更改为可写目录，否则 ruhop 将无法写入日志，且 `ruhop status` 命令将无法连接到控制套接字：
+  ```
+  [common]
+  log_file = "/some/writable/location/ruhop"
+  control_socket = "/some/writable/location/ruhop.sock"
+  ```
+- `iptables`、`ipset` 和/或 `nftables` 在非 root 权限下可能无法正常工作，具体取决于您的系统配置，因此在非 root 权限下运行时可能会有功能限制。
+
 ### macOS
 
 - 直接 utun 访问需要 Root 权限
-- App Store 应用需要 NetworkExtension 授权
 
 ### Windows
 

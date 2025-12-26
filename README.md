@@ -122,6 +122,8 @@ on_disconnect = "/path/to/script" # Script to run on disconnect
 
 ```
 ruhop/
+├── hop-dns/             # DNS proxy implementation
+│   └── src/
 ├── hop-protocol/        # Core protocol library
 │   └── src/
 ├── hop-tun/             # TUN device management
@@ -138,6 +140,7 @@ ruhop/
 
 | Crate | Description |
 |-------|-------------|
+| [hop-dns](hop-dns/) | DNS proxy implementation for handling DNS requests over the VPN tunnel |
 | [hop-protocol](hop-protocol/) | OS-independent protocol library for packet encoding/decoding, encryption, and session management |
 | [hop-tun](hop-tun/) | Cross-platform TUN device management, route management, and NAT setup |
 | [ruhop-engine](ruhop-engine/) | High-level VPN engine interface for building CLI/GUI applications |
@@ -158,10 +161,18 @@ To run without root:
 sudo setcap 'cap_net_admin,cap_net_raw,cap_net_bind_service=eip' /path/to/ruhop
 ```
 
+NOTE:
+- When running without root privileges, make sure you changed the location of log and the control socket to a writable location, otherwise ruhop will not be able to write logs, and the `ruhop status` command will fail to connect to the control socket:
+  ```
+  [common]
+  log_file = "/some/writable/location/ruhop"
+  control_socket = "/some/writable/location/ruhop.sock"
+  ```
+- `iptables`, `ipset`, and/or `nftables`  may not work without root privileges, depending on your system configuration, so expect functionality limitations when running without root.
+
 ### macOS
 
 - Root privileges for direct utun access
-- For App Store apps: NetworkExtension entitlements required
 
 ### Windows
 
@@ -183,9 +194,9 @@ The GoHop protocol uses a 4-phase connection lifecycle:
 
 ```
 ┌──────────────────────────────────────────────────────────┐
-│                    Encrypted Block                        │
+│                    Encrypted Block                       │
 ├────────────┬─────────────────────────────────────────────┤
-│   16-byte  │              Ciphertext                      │
+│   16-byte  │              Ciphertext                     │
 │     IV     ├─────────────────────┬───────────────────────┤
 │            │    16-byte Header   │    Payload + Noise    │
 └────────────┴─────────────────────┴───────────────────────┘
