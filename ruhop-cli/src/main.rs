@@ -396,6 +396,9 @@ async fn show_status(socket_path: String, json: bool) -> Result<()> {
             if let Some(ref ip) = status.peer_ip {
                 println!("Peer IP:         {}", ip);
             }
+            if let Some(ref name) = status.tun_name {
+                println!("TUN Device:      {}", name);
+            }
 
             println!();
             println!("Traffic Statistics");

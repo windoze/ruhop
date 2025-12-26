@@ -360,6 +360,15 @@ impl VpnEngine {
         let dns_servers_for_handshake = self.setup_dns_proxy(server_config, tunnel_ip, shutdown_tx.clone()).await?;
 
         self.set_state(VpnState::Listening).await;
+
+        // Update control state with tunnel IP and TUN name for status reporting
+        {
+            let mut ctrl_state = self.control_state.write().await;
+            ctrl_state.tunnel_ip = Some(IpAddr::V4(tunnel_ip));
+            ctrl_state.tun_name = Some(tun_name.clone());
+            // peer_ip is not applicable for server mode
+        }
+
         self.emit_event(VpnEvent::ServerReady {
             tunnel_ip: IpAddr::V4(tunnel_ip),
             port_range: (server_config.port_range[0], server_config.port_range[1]),
@@ -1240,6 +1249,15 @@ impl VpnEngine {
             .await?;
 
         self.set_state(VpnState::Connected).await;
+
+        // Update control state with tunnel IPs and TUN name for status reporting
+        {
+            let mut ctrl_state = self.control_state.write().await;
+            ctrl_state.tunnel_ip = Some(IpAddr::V4(tunnel_ipv4));
+            ctrl_state.peer_ip = Some(IpAddr::V4(server_tunnel_ip));
+            ctrl_state.tun_name = Some(tun_name.clone());
+        }
+
         self.emit_event(VpnEvent::Connected {
             tunnel_ip: IpAddr::V4(tunnel_ipv4),
             peer_ip: Some(IpAddr::V4(server_tunnel_ip)),

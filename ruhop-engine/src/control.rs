@@ -83,6 +83,8 @@ pub struct StatusInfo {
     pub tunnel_ip: Option<String>,
     /// Peer IP (if connected)
     pub peer_ip: Option<String>,
+    /// TUN device name (if connected)
+    pub tun_name: Option<String>,
     /// Blacklisted endpoints (client only)
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub blacklisted_endpoints: Vec<BlacklistedEndpoint>,
@@ -131,6 +133,8 @@ pub struct ControlState {
     pub tunnel_ip: Option<IpAddr>,
     /// Peer IP
     pub peer_ip: Option<IpAddr>,
+    /// TUN device name
+    pub tun_name: Option<String>,
     /// Connected clients (server only)
     pub clients: Vec<ClientInfo>,
     /// Shutdown sender
@@ -148,6 +152,7 @@ impl ControlState {
             start_time: std::time::Instant::now(),
             tunnel_ip: None,
             peer_ip: None,
+            tun_name: None,
             clients: Vec::new(),
             shutdown_tx: None,
             blacklisted_endpoints: Vec::new(),
@@ -167,6 +172,7 @@ impl ControlState {
             active_sessions: stats.active_sessions,
             tunnel_ip: self.tunnel_ip.map(|ip| ip.to_string()),
             peer_ip: self.peer_ip.map(|ip| ip.to_string()),
+            tun_name: self.tun_name.clone(),
             blacklisted_endpoints: self.blacklisted_endpoints.clone(),
         }
     }
