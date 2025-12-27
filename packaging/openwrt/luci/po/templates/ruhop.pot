@@ -1,0 +1,587 @@
+# Ruhop VPN LuCI Application
+# Copyright 2024 ruhop contributors
+# Licensed under the Apache License, Version 2.0
+#
+msgid ""
+msgstr ""
+"Project-Id-Version: luci-app-ruhop\n"
+"POT-Creation-Date: 2024-01-01 00:00+0000\n"
+"PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
+"Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
+"Language-Team: LANGUAGE <LL@li.org>\n"
+"Language: \n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+
+#: luasrc/controller/ruhop.lua
+msgid "Ruhop VPN"
+msgstr ""
+
+#: luasrc/controller/ruhop.lua
+msgid "General Settings"
+msgstr ""
+
+#: luasrc/controller/ruhop.lua
+msgid "Server Mode"
+msgstr ""
+
+#: luasrc/controller/ruhop.lua
+msgid "Client Mode"
+msgstr ""
+
+#: luasrc/controller/ruhop.lua
+msgid "Status"
+msgstr ""
+
+#: luasrc/controller/ruhop.lua
+msgid "Log"
+msgstr ""
+
+#: luasrc/model/cbi/ruhop/general.lua
+msgid "Ruhop VPN - General Settings"
+msgstr ""
+
+#: luasrc/model/cbi/ruhop/general.lua
+msgid "Ruhop is a UDP-based VPN with port hopping capabilities for traffic obfuscation."
+msgstr ""
+
+#: luasrc/model/cbi/ruhop/general.lua
+msgid "Service Control"
+msgstr ""
+
+#: luasrc/model/cbi/ruhop/general.lua
+msgid "Enable"
+msgstr ""
+
+#: luasrc/model/cbi/ruhop/general.lua
+msgid "Mode"
+msgstr ""
+
+#: luasrc/model/cbi/ruhop/general.lua
+msgid "Client"
+msgstr ""
+
+#: luasrc/model/cbi/ruhop/general.lua
+msgid "Server"
+msgstr ""
+
+#: luasrc/model/cbi/ruhop/general.lua
+msgid "Config File Path"
+msgstr ""
+
+#: luasrc/model/cbi/ruhop/general.lua
+msgid "Common Settings"
+msgstr ""
+
+#: luasrc/model/cbi/ruhop/general.lua
+msgid "Settings shared between server and client modes."
+msgstr ""
+
+#: luasrc/model/cbi/ruhop/general.lua
+msgid "Pre-shared Key"
+msgstr ""
+
+#: luasrc/model/cbi/ruhop/general.lua
+msgid "Encryption key that must match between client and server."
+msgstr ""
+
+#: luasrc/model/cbi/ruhop/general.lua
+msgid "MTU"
+msgstr ""
+
+#: luasrc/model/cbi/ruhop/general.lua
+msgid "Maximum Transmission Unit for the tunnel interface. Minimum: 576"
+msgstr ""
+
+#: luasrc/model/cbi/ruhop/general.lua
+msgid "Log Level"
+msgstr ""
+
+#: luasrc/model/cbi/ruhop/general.lua
+msgid "Error"
+msgstr ""
+
+#: luasrc/model/cbi/ruhop/general.lua
+msgid "Warning"
+msgstr ""
+
+#: luasrc/model/cbi/ruhop/general.lua
+msgid "Info"
+msgstr ""
+
+#: luasrc/model/cbi/ruhop/general.lua
+msgid "Debug"
+msgstr ""
+
+#: luasrc/model/cbi/ruhop/general.lua
+msgid "Trace"
+msgstr ""
+
+#: luasrc/model/cbi/ruhop/general.lua
+msgid "Log File Directory"
+msgstr ""
+
+#: luasrc/model/cbi/ruhop/general.lua
+msgid "Optional directory path for file-based logging."
+msgstr ""
+
+#: luasrc/model/cbi/ruhop/general.lua
+msgid "Log Rotation"
+msgstr ""
+
+#: luasrc/model/cbi/ruhop/general.lua
+msgid "Hourly"
+msgstr ""
+
+#: luasrc/model/cbi/ruhop/general.lua
+msgid "Daily"
+msgstr ""
+
+#: luasrc/model/cbi/ruhop/general.lua
+msgid "Never"
+msgstr ""
+
+#: luasrc/model/cbi/ruhop/general.lua
+msgid "Packet Obfuscation"
+msgstr ""
+
+#: luasrc/model/cbi/ruhop/general.lua
+msgid "Enable packet obfuscation with random noise bytes."
+msgstr ""
+
+#: luasrc/model/cbi/ruhop/general.lua
+msgid "Heartbeat Interval"
+msgstr ""
+
+#: luasrc/model/cbi/ruhop/general.lua
+msgid "Seconds between keep-alive packets."
+msgstr ""
+
+#: luasrc/model/cbi/ruhop/general.lua
+msgid "TUN Device Name"
+msgstr ""
+
+#: luasrc/model/cbi/ruhop/general.lua
+msgid "Optional custom TUN device name. Defaults to 'ruhop'."
+msgstr ""
+
+#: luasrc/model/cbi/ruhop/general.lua
+msgid "Firewall Backend"
+msgstr ""
+
+#: luasrc/model/cbi/ruhop/general.lua
+msgid "Select firewall backend. OpenWRT with fw4 uses nftables."
+msgstr ""
+
+#: luasrc/model/cbi/ruhop/general.lua
+msgid "Auto-detect"
+msgstr ""
+
+#: luasrc/model/cbi/ruhop/general.lua
+msgid "nftables (fw4)"
+msgstr ""
+
+#: luasrc/model/cbi/ruhop/general.lua
+msgid "iptables (fw3)"
+msgstr ""
+
+#: luasrc/model/cbi/ruhop/server.lua
+msgid "Ruhop VPN - Server Mode"
+msgstr ""
+
+#: luasrc/model/cbi/ruhop/server.lua
+msgid "Configure ruhop as a VPN server."
+msgstr ""
+
+#: luasrc/model/cbi/ruhop/server.lua
+msgid "Server Settings"
+msgstr ""
+
+#: luasrc/model/cbi/ruhop/server.lua
+msgid "Listen Address"
+msgstr ""
+
+#: luasrc/model/cbi/ruhop/server.lua
+msgid "IP address to bind to. Use 0.0.0.0 for all interfaces."
+msgstr ""
+
+#: luasrc/model/cbi/ruhop/server.lua
+msgid "Port Range Start"
+msgstr ""
+
+#: luasrc/model/cbi/ruhop/server.lua
+msgid "Starting port for port hopping range."
+msgstr ""
+
+#: luasrc/model/cbi/ruhop/server.lua
+msgid "Port Range End"
+msgstr ""
+
+#: luasrc/model/cbi/ruhop/server.lua
+msgid "Ending port for port hopping range."
+msgstr ""
+
+#: luasrc/model/cbi/ruhop/server.lua
+msgid "Tunnel Network"
+msgstr ""
+
+#: luasrc/model/cbi/ruhop/server.lua
+msgid "CIDR notation network for client IP allocation (e.g., 10.0.0.0/24)."
+msgstr ""
+
+#: luasrc/model/cbi/ruhop/server.lua
+msgid "Server Tunnel IP"
+msgstr ""
+
+#: luasrc/model/cbi/ruhop/server.lua
+msgid "Optional server's tunnel IP. Defaults to network_address + 1 if not set."
+msgstr ""
+
+#: luasrc/model/cbi/ruhop/server.lua
+msgid "Maximum Clients"
+msgstr ""
+
+#: luasrc/model/cbi/ruhop/server.lua
+msgid "Maximum number of concurrent client connections."
+msgstr ""
+
+#: luasrc/model/cbi/ruhop/server.lua
+msgid "NAT Settings"
+msgstr ""
+
+#: luasrc/model/cbi/ruhop/server.lua
+msgid "Enable NAT"
+msgstr ""
+
+#: luasrc/model/cbi/ruhop/server.lua
+msgid "Enable NAT/masquerading for client traffic."
+msgstr ""
+
+#: luasrc/model/cbi/ruhop/server.lua
+msgid "NAT Interface"
+msgstr ""
+
+#: luasrc/model/cbi/ruhop/server.lua
+msgid "Outbound interface for NAT. Auto-detected if not set."
+msgstr ""
+
+#: luasrc/model/cbi/ruhop/server.lua
+msgid "DNS Proxy Settings"
+msgstr ""
+
+#: luasrc/model/cbi/ruhop/server.lua
+msgid "Enable DNS Proxy"
+msgstr ""
+
+#: luasrc/model/cbi/ruhop/server.lua
+msgid "Enable DNS proxy on tunnel IP for clients."
+msgstr ""
+
+#: luasrc/model/cbi/ruhop/server.lua
+msgid "Upstream DNS Servers"
+msgstr ""
+
+#: luasrc/model/cbi/ruhop/server.lua
+msgid "DNS servers to forward queries to. Formats: IP, IP:port, IP/udp, IP/tcp, https://..., tls://..."
+msgstr ""
+
+#: luasrc/model/cbi/ruhop/client.lua
+msgid "Ruhop VPN - Client Mode"
+msgstr ""
+
+#: luasrc/model/cbi/ruhop/client.lua
+msgid "Configure ruhop as a VPN client."
+msgstr ""
+
+#: luasrc/model/cbi/ruhop/client.lua
+msgid "Client Settings"
+msgstr ""
+
+#: luasrc/model/cbi/ruhop/client.lua
+msgid "Server Address(es)"
+msgstr ""
+
+#: luasrc/model/cbi/ruhop/client.lua
+msgid "VPN server hostname(s) or IP address(es). Multiple servers for failover."
+msgstr ""
+
+#: luasrc/model/cbi/ruhop/client.lua
+msgid "Requested Tunnel IP"
+msgstr ""
+
+#: luasrc/model/cbi/ruhop/client.lua
+msgid "Optional specific tunnel IP to request from server."
+msgstr ""
+
+#: luasrc/model/cbi/ruhop/client.lua
+msgid "Routing Settings"
+msgstr ""
+
+#: luasrc/model/cbi/ruhop/client.lua
+msgid "Route All Traffic"
+msgstr ""
+
+#: luasrc/model/cbi/ruhop/client.lua
+msgid "Route all traffic through the VPN tunnel."
+msgstr ""
+
+#: luasrc/model/cbi/ruhop/client.lua
+msgid "Excluded Routes"
+msgstr ""
+
+#: luasrc/model/cbi/ruhop/client.lua
+msgid "CIDR routes to bypass the VPN (e.g., 192.168.1.0/24)."
+msgstr ""
+
+#: luasrc/model/cbi/ruhop/client.lua
+msgid "Custom DNS Servers"
+msgstr ""
+
+#: luasrc/model/cbi/ruhop/client.lua
+msgid "DNS servers to use when connected. Leave empty to use server-provided DNS."
+msgstr ""
+
+#: luasrc/model/cbi/ruhop/client.lua
+msgid "TCP MSS Clamping"
+msgstr ""
+
+#: luasrc/model/cbi/ruhop/client.lua
+msgid "Enable TCP MSS clamping. Recommended for gateway/router scenarios."
+msgstr ""
+
+#: luasrc/model/cbi/ruhop/client.lua
+msgid "Reconnection Settings"
+msgstr ""
+
+#: luasrc/model/cbi/ruhop/client.lua
+msgid "Auto Reconnect"
+msgstr ""
+
+#: luasrc/model/cbi/ruhop/client.lua
+msgid "Automatically reconnect on connection loss."
+msgstr ""
+
+#: luasrc/model/cbi/ruhop/client.lua
+msgid "Max Reconnect Attempts"
+msgstr ""
+
+#: luasrc/model/cbi/ruhop/client.lua
+msgid "Maximum reconnection attempts. 0 for unlimited."
+msgstr ""
+
+#: luasrc/model/cbi/ruhop/client.lua
+msgid "Reconnect Delay"
+msgstr ""
+
+#: luasrc/model/cbi/ruhop/client.lua
+msgid "Seconds between reconnection attempts."
+msgstr ""
+
+#: luasrc/model/cbi/ruhop/client.lua
+msgid "Hook Scripts"
+msgstr ""
+
+#: luasrc/model/cbi/ruhop/client.lua
+msgid "Scripts executed on connection state changes. Arguments: tunnel_ip netmask tun_device dns_servers"
+msgstr ""
+
+#: luasrc/model/cbi/ruhop/client.lua
+msgid "On Connect Script"
+msgstr ""
+
+#: luasrc/model/cbi/ruhop/client.lua
+msgid "Script to run on successful connection."
+msgstr ""
+
+#: luasrc/model/cbi/ruhop/client.lua
+msgid "On Disconnect Script"
+msgstr ""
+
+#: luasrc/model/cbi/ruhop/client.lua
+msgid "Script to run on disconnection."
+msgstr ""
+
+#: luasrc/model/cbi/ruhop/client.lua
+msgid "Path Loss Detection"
+msgstr ""
+
+#: luasrc/model/cbi/ruhop/client.lua
+msgid "Optional probe settings for detecting and blacklisting lossy paths."
+msgstr ""
+
+#: luasrc/model/cbi/ruhop/client.lua
+msgid "Enable Probing"
+msgstr ""
+
+#: luasrc/model/cbi/ruhop/client.lua
+msgid "Enable path loss detection probes."
+msgstr ""
+
+#: luasrc/model/cbi/ruhop/client.lua
+msgid "Probe Interval"
+msgstr ""
+
+#: luasrc/model/cbi/ruhop/client.lua
+msgid "Seconds between probes to each address."
+msgstr ""
+
+#: luasrc/model/cbi/ruhop/client.lua
+msgid "Loss Threshold"
+msgstr ""
+
+#: luasrc/model/cbi/ruhop/client.lua
+msgid "Loss rate threshold for blacklisting (0.0-1.0)."
+msgstr ""
+
+#: luasrc/model/cbi/ruhop/client.lua
+msgid "Blacklist Duration"
+msgstr ""
+
+#: luasrc/model/cbi/ruhop/client.lua
+msgid "Seconds to keep address blacklisted."
+msgstr ""
+
+#: luasrc/model/cbi/ruhop/client.lua
+msgid "Minimum Probes"
+msgstr ""
+
+#: luasrc/model/cbi/ruhop/client.lua
+msgid "Minimum probes before blacklist decision."
+msgstr ""
+
+#: luasrc/model/cbi/ruhop/client.lua
+msgid "Client DNS Proxy"
+msgstr ""
+
+#: luasrc/model/cbi/ruhop/client.lua
+msgid "Optional local DNS proxy to forward queries through VPN."
+msgstr ""
+
+#: luasrc/model/cbi/ruhop/client.lua
+msgid "DNS Proxy Port"
+msgstr ""
+
+#: luasrc/model/cbi/ruhop/client.lua
+msgid "Local port to listen for DNS queries."
+msgstr ""
+
+#: luasrc/model/cbi/ruhop/client.lua
+msgid "Filter IPv6"
+msgstr ""
+
+#: luasrc/model/cbi/ruhop/client.lua
+msgid "Filter AAAA records from DNS responses."
+msgstr ""
+
+#: luasrc/model/cbi/ruhop/client.lua
+msgid "IP Set Name"
+msgstr ""
+
+#: luasrc/model/cbi/ruhop/client.lua
+msgid "Optional Linux IP set name for resolved addresses (nftables or ipset)."
+msgstr ""
+
+#: luasrc/view/ruhop/status.htm
+msgid "Ruhop VPN Status"
+msgstr ""
+
+#: luasrc/view/ruhop/status.htm
+msgid "Service Status"
+msgstr ""
+
+#: luasrc/view/ruhop/status.htm
+msgid "Running"
+msgstr ""
+
+#: luasrc/view/ruhop/status.htm
+msgid "Stopped"
+msgstr ""
+
+#: luasrc/view/ruhop/status.htm
+msgid "Loading..."
+msgstr ""
+
+#: luasrc/view/ruhop/status.htm
+msgid "Service is not running"
+msgstr ""
+
+#: luasrc/view/ruhop/status.htm
+msgid "Role"
+msgstr ""
+
+#: luasrc/view/ruhop/status.htm
+msgid "State"
+msgstr ""
+
+#: luasrc/view/ruhop/status.htm
+msgid "Uptime"
+msgstr ""
+
+#: luasrc/view/ruhop/status.htm
+msgid "Tunnel IP"
+msgstr ""
+
+#: luasrc/view/ruhop/status.htm
+msgid "Peer IP"
+msgstr ""
+
+#: luasrc/view/ruhop/status.htm
+msgid "TUN Device"
+msgstr ""
+
+#: luasrc/view/ruhop/status.htm
+msgid "RX"
+msgstr ""
+
+#: luasrc/view/ruhop/status.htm
+msgid "TX"
+msgstr ""
+
+#: luasrc/view/ruhop/status.htm
+msgid "Active Sessions"
+msgstr ""
+
+#: luasrc/view/ruhop/status.htm
+msgid "Blacklisted Endpoints"
+msgstr ""
+
+#: luasrc/view/ruhop/status.htm
+msgid "Connection Details"
+msgstr ""
+
+#: luasrc/view/ruhop/status.htm
+msgid "Start"
+msgstr ""
+
+#: luasrc/view/ruhop/status.htm
+msgid "Stop"
+msgstr ""
+
+#: luasrc/view/ruhop/status.htm
+msgid "Restart"
+msgstr ""
+
+#: luasrc/view/ruhop/log.htm
+msgid "Ruhop VPN Log"
+msgstr ""
+
+#: luasrc/view/ruhop/log.htm
+msgid "Lines to show"
+msgstr ""
+
+#: luasrc/view/ruhop/log.htm
+msgid "Refresh"
+msgstr ""
+
+#: luasrc/view/ruhop/log.htm
+msgid "Auto-refresh"
+msgstr ""
+
+#: luasrc/view/ruhop/log.htm
+msgid "Stop Auto-refresh"
+msgstr ""
+
+#: luasrc/view/ruhop/log.htm
+msgid "Clear"
+msgstr ""

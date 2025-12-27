@@ -1,0 +1,30 @@
+{
+    "luci-app-ruhop": {
+        "description": "Grant access to Ruhop VPN configuration",
+        "read": {
+            "file": {
+                "/etc/ruhop/*": ["read"],
+                "/etc/config/ruhop": ["read"]
+            },
+            "ubus": {
+                "file": ["read", "stat", "list"],
+                "luci": ["getInitList", "getLocaltime", "getRealtimeStats"],
+                "service": ["list"],
+                "uci": ["get", "state"]
+            },
+            "uci": ["ruhop"]
+        },
+        "write": {
+            "file": {
+                "/etc/ruhop/*": ["write"],
+                "/etc/config/ruhop": ["write"]
+            },
+            "ubus": {
+                "file": ["write", "remove"],
+                "luci": ["setInitAction", "setLocaltime"],
+                "uci": ["add", "apply", "confirm", "delete", "order", "set", "rename"]
+            },
+            "uci": ["ruhop"]
+        }
+    }
+}

@@ -1,0 +1,53 @@
+{
+    "admin/vpn/ruhop": {
+        "title": "Ruhop VPN",
+        "order": 90,
+        "action": {
+            "type": "firstchild"
+        },
+        "depends": {
+            "acl": ["luci-app-ruhop"],
+            "uci": {"ruhop": true}
+        }
+    },
+    "admin/vpn/ruhop/general": {
+        "title": "General Settings",
+        "order": 10,
+        "action": {
+            "type": "view",
+            "path": "ruhop/general"
+        }
+    },
+    "admin/vpn/ruhop/server": {
+        "title": "Server Mode",
+        "order": 20,
+        "action": {
+            "type": "view",
+            "path": "ruhop/server"
+        }
+    },
+    "admin/vpn/ruhop/client": {
+        "title": "Client Mode",
+        "order": 30,
+        "action": {
+            "type": "view",
+            "path": "ruhop/client"
+        }
+    },
+    "admin/vpn/ruhop/status": {
+        "title": "Status",
+        "order": 40,
+        "action": {
+            "type": "view",
+            "path": "ruhop/status"
+        }
+    },
+    "admin/vpn/ruhop/log": {
+        "title": "Log",
+        "order": 50,
+        "action": {
+            "type": "view",
+            "path": "ruhop/log"
+        }
+    }
+}

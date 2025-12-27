@@ -1,0 +1,171 @@
+<%#
+ Copyright 2024 ruhop contributors
+ Licensed under the Apache License, Version 2.0
+-%>
+
+<%+header%>
+
+<script type="text/javascript">//<![CDATA[
+    var statusUrl = '<%=url("admin/vpn/ruhop/status_data")%>';
+    var startUrl = '<%=url("admin/vpn/ruhop/start")%>';
+    var stopUrl = '<%=url("admin/vpn/ruhop/stop")%>';
+    var restartUrl = '<%=url("admin/vpn/ruhop/restart")%>';
+
+    function formatBytes(bytes) {
+        if (bytes === 0) return '0 B';
+        var k = 1024;
+        var sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
+        var i = Math.floor(Math.log(bytes) / Math.log(k));
+        return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+    }
+
+    function updateStatus() {
+        XHR.get(statusUrl, null, function(x, data) {
+            if (!data) return;
+
+            var statusBadge = document.getElementById('status-badge');
+            var statusText = document.getElementById('status-text');
+            var detailsDiv = document.getElementById('status-details');
+            var blacklistDiv = document.getElementById('blacklist-info');
+
+            if (data.running) {
+                statusBadge.className = 'badge badge-success';
+                statusText.innerHTML = '<%:Running%>';
+
+                var html = '<table class="table">';
+                html += '<tr><td><%:Role%></td><td>' + (data.role || '-') + '</td></tr>';
+                html += '<tr><td><%:State%></td><td>' + (data.state || '-') + '</td></tr>';
+                html += '<tr><td><%:Uptime%></td><td>' + (data.uptime || '-') + '</td></tr>';
+                html += '<tr><td><%:Tunnel IP%></td><td>' + (data.tunnel_ip || '-') + '</td></tr>';
+                html += '<tr><td><%:Peer IP%></td><td>' + (data.peer_ip || '-') + '</td></tr>';
+                html += '<tr><td><%:TUN Device%></td><td>' + (data.tun_device || '-') + '</td></tr>';
+                html += '<tr><td><%:RX%></td><td>' + formatBytes(data.rx_bytes) + ' (' + data.rx_packets + ' packets)</td></tr>';
+                html += '<tr><td><%:TX%></td><td>' + formatBytes(data.tx_bytes) + ' (' + data.tx_packets + ' packets)</td></tr>';
+
+                if (data.role === 'server' && data.sessions !== undefined) {
+                    html += '<tr><td><%:Active Sessions%></td><td>' + data.sessions + '</td></tr>';
+                }
+
+                html += '</table>';
+                detailsDiv.innerHTML = html;
+
+                // Blacklist info for clients
+                if (data.role === 'client' && data.blacklist && data.blacklist.length > 0) {
+                    var blHtml = '<h4><%:Blacklisted Endpoints%></h4><ul>';
+                    for (var i = 0; i < data.blacklist.length; i++) {
+                        blHtml += '<li>' + data.blacklist[i] + '</li>';
+                    }
+                    blHtml += '</ul>';
+                    blacklistDiv.innerHTML = blHtml;
+                    blacklistDiv.style.display = 'block';
+                } else {
+                    blacklistDiv.style.display = 'none';
+                }
+            } else {
+                statusBadge.className = 'badge badge-danger';
+                statusText.innerHTML = '<%:Stopped%>';
+                detailsDiv.innerHTML = '<p class="alert-message info"><%:Service is not running%></p>';
+                blacklistDiv.style.display = 'none';
+            }
+        });
+    }
+
+    function serviceAction(url, action) {
+        var btn = document.getElementById('btn-' + action);
+        if (btn) btn.disabled = true;
+
+        XHR.get(url, null, function(x, data) {
+            if (btn) btn.disabled = false;
+            setTimeout(updateStatus, 1000);
+        });
+    }
+
+    document.addEventListener('DOMContentLoaded', function() {
+        updateStatus();
+        setInterval(updateStatus, 5000);
+    });
+//]]></script>
+
+<h2><%:Ruhop VPN Status%></h2>
+
+<div class="cbi-section">
+    <div class="cbi-section-node">
+        <div class="cbi-value">
+            <label class="cbi-value-title"><%:Service Status%></label>
+            <div class="cbi-value-field">
+                <span id="status-badge" class="badge badge-secondary">
+                    <span id="status-text"><%:Loading...%></span>
+                </span>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="cbi-section">
+    <h3><%:Service Control%></h3>
+    <div class="cbi-section-node">
+        <div class="cbi-value">
+            <div class="cbi-value-field">
+                <button class="cbi-button cbi-button-apply" id="btn-start" onclick="serviceAction(startUrl, 'start')">
+                    <%:Start%>
+                </button>
+                <button class="cbi-button cbi-button-reset" id="btn-stop" onclick="serviceAction(stopUrl, 'stop')">
+                    <%:Stop%>
+                </button>
+                <button class="cbi-button cbi-button-action" id="btn-restart" onclick="serviceAction(restartUrl, 'restart')">
+                    <%:Restart%>
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="cbi-section">
+    <h3><%:Connection Details%></h3>
+    <div class="cbi-section-node" id="status-details">
+        <p class="alert-message info"><%:Loading...%></p>
+    </div>
+</div>
+
+<div class="cbi-section" id="blacklist-info" style="display:none;">
+</div>
+
+<style>
+.badge {
+    display: inline-block;
+    padding: 0.35em 0.65em;
+    font-size: 0.85em;
+    font-weight: 700;
+    line-height: 1;
+    text-align: center;
+    white-space: nowrap;
+    vertical-align: baseline;
+    border-radius: 0.375rem;
+}
+.badge-success {
+    background-color: #198754;
+    color: #fff;
+}
+.badge-danger {
+    background-color: #dc3545;
+    color: #fff;
+}
+.badge-secondary {
+    background-color: #6c757d;
+    color: #fff;
+}
+.table {
+    width: 100%;
+    border-collapse: collapse;
+}
+.table td {
+    padding: 8px;
+    border-bottom: 1px solid #ddd;
+}
+.table td:first-child {
+    font-weight: bold;
+    width: 150px;
+}
+</style>
+
+<%+footer%>

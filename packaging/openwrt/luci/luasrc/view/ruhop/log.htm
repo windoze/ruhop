@@ -1,0 +1,90 @@
+<%#
+ Copyright 2024 ruhop contributors
+ Licensed under the Apache License, Version 2.0
+-%>
+
+<%+header%>
+
+<script type="text/javascript">//<![CDATA[
+    var logUrl = '<%=url("admin/vpn/ruhop/log_data")%>';
+    var autoRefresh = false;
+    var refreshInterval = null;
+
+    function fetchLog() {
+        var lines = document.getElementById('log-lines').value;
+        XHR.get(logUrl + '?lines=' + lines, null, function(x, data) {
+            var logArea = document.getElementById('log-content');
+            if (x && x.responseText) {
+                logArea.value = x.responseText;
+                logArea.scrollTop = logArea.scrollHeight;
+            }
+        });
+    }
+
+    function toggleAutoRefresh() {
+        autoRefresh = !autoRefresh;
+        var btn = document.getElementById('btn-auto-refresh');
+
+        if (autoRefresh) {
+            btn.innerHTML = '<%:Stop Auto-refresh%>';
+            btn.className = 'cbi-button cbi-button-reset';
+            refreshInterval = setInterval(fetchLog, 3000);
+        } else {
+            btn.innerHTML = '<%:Auto-refresh%>';
+            btn.className = 'cbi-button cbi-button-action';
+            if (refreshInterval) {
+                clearInterval(refreshInterval);
+                refreshInterval = null;
+            }
+        }
+    }
+
+    function clearLog() {
+        document.getElementById('log-content').value = '';
+    }
+
+    document.addEventListener('DOMContentLoaded', function() {
+        fetchLog();
+    });
+//]]></script>
+
+<h2><%:Ruhop VPN Log%></h2>
+
+<div class="cbi-section">
+    <div class="cbi-section-node">
+        <div class="cbi-value">
+            <label class="cbi-value-title"><%:Lines to show%></label>
+            <div class="cbi-value-field">
+                <select id="log-lines" class="cbi-input-select" onchange="fetchLog()">
+                    <option value="25">25</option>
+                    <option value="50" selected>50</option>
+                    <option value="100">100</option>
+                    <option value="200">200</option>
+                    <option value="500">500</option>
+                </select>
+            </div>
+        </div>
+        <div class="cbi-value">
+            <div class="cbi-value-field">
+                <button class="cbi-button cbi-button-apply" onclick="fetchLog()">
+                    <%:Refresh%>
+                </button>
+                <button class="cbi-button cbi-button-action" id="btn-auto-refresh" onclick="toggleAutoRefresh()">
+                    <%:Auto-refresh%>
+                </button>
+                <button class="cbi-button cbi-button-reset" onclick="clearLog()">
+                    <%:Clear%>
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="cbi-section">
+    <div class="cbi-section-node">
+        <textarea id="log-content" readonly="readonly" wrap="off"
+            style="width:100%; height:500px; font-family:monospace; font-size:12px; background:#1e1e1e; color:#d4d4d4; padding:10px; border:1px solid #444; resize:vertical;"><%:Loading...%></textarea>
+    </div>
+</div>
+
+<%+footer%>
