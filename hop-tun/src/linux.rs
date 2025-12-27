@@ -52,8 +52,10 @@ pub fn set_interface_flags(name: &str, flags: i32) -> Result<()> {
     let name_bytes = c_name.as_bytes_with_nul();
     let copy_len = name_bytes.len().min(libc::IFNAMSIZ);
     unsafe {
+        #[allow(clippy::unnecessary_cast)]
         std::ptr::copy_nonoverlapping(
             name_bytes.as_ptr(),
+            // This line failed clippy check on aarch64 but not x86_64, so we add an allow attribute
             ifr.ifr_name.as_mut_ptr() as *mut u8,
             copy_len,
         );

@@ -730,8 +730,8 @@ table ip {table} {{
                 if let Some(ref original) = self.original_ip_forward {
                     log::debug!("Restoring IP forwarding to original value: {}", original);
                     // Parse the hex value (e.g., "0x0" or "0x1") to decimal
-                    let value = if original.starts_with("0x") {
-                        u32::from_str_radix(&original[2..], 16).unwrap_or(0)
+                    let value = if let Some(stripped) = original.strip_prefix("0x") {
+                        u32::from_str_radix(stripped, 16).unwrap_or(0)
                     } else {
                         original.parse::<u32>().unwrap_or(0)
                     };
