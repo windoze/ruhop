@@ -182,9 +182,9 @@ impl TrackedUdpSocket {
             // Prepare buffers - use larger buffer for IPv6
             let mut iov = [IoSliceMut::new(buf)];
             let mut cmsg_buf = if is_ipv6 {
-                vec![0u8; nix::cmsg_space!(libc::in6_pktinfo)]
+                nix::cmsg_space!(libc::in6_pktinfo)
             } else {
-                vec![0u8; nix::cmsg_space!(libc::in_pktinfo)]
+                nix::cmsg_space!(libc::in_pktinfo)
             };
 
             // Use try_io to perform the blocking recvmsg in a non-blocking context
