@@ -749,7 +749,8 @@ impl ClientConfig {
     /// Resolve all server IP addresses from the configured hosts
     ///
     /// Returns a list of IP addresses resolved from all configured server hosts.
-    /// Each hostname may resolve to multiple IPs.
+    /// Each hostname may resolve to multiple IPs. Invalid or unresolvable addresses
+    /// are filtered out with an error log, and only valid addresses are returned.
     pub fn resolve_server_ips(&self) -> Result<Vec<IpAddr>> {
         let mut ips = Vec::new();
 
@@ -771,10 +772,8 @@ impl ClientConfig {
                     }
                 }
                 Err(e) => {
-                    return Err(Error::Config(format!(
-                        "could not resolve server host '{}': {}",
-                        host, e
-                    )));
+                    // Log error and skip invalid/unresolvable addresses
+                    log::error!("Skipping invalid server address '{}': {}", host, e);
                 }
             }
         }
