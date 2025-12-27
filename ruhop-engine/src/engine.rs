@@ -8,11 +8,10 @@ use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use tokio::net::UdpSocket;
 use tokio::sync::{broadcast, Mutex, RwLock};
 use tokio::time::interval;
 
-use crate::socket::TrackedUdpSocket;
+use crate::socket::{DualStackSocket, TrackedUdpSocket};
 
 use hop_protocol::{
     AssignedAddresses, Cipher, IpAddress, Ipv4Pool, Packet, Session, SessionId,
@@ -1106,12 +1105,16 @@ impl VpnEngine {
 
         // Resolve all server addresses (hosts × port range)
         let server_addrs = client_config.server_addrs()?;
+        let server_ips = client_config.resolve_server_ips()?;
+        let ipv4_count = server_ips.iter().filter(|ip| ip.is_ipv4()).count();
+        let ipv6_count = server_ips.iter().filter(|ip| ip.is_ipv6()).count();
         self.log(
             LogLevel::Info,
             format!(
-                "Resolved {} server addresses ({} hosts × {} ports)",
+                "Resolved {} server addresses ({} IPv4 + {} IPv6 hosts × {} ports)",
                 server_addrs.len(),
-                client_config.resolve_server_ips()?.len(),
+                ipv4_count,
+                ipv6_count,
                 client_config.port_range[1] - client_config.port_range[0] + 1
             ),
         )
@@ -1122,12 +1125,19 @@ impl VpnEngine {
             .random_server_addr(&server_addrs)
             .ok_or_else(|| Error::Config("no server addresses available".into()))?;
 
-        // Create UDP socket
+        // Create dual-stack UDP socket (supports both IPv4 and IPv6)
         let socket = Arc::new(
-            UdpSocket::bind("0.0.0.0:0")
+            DualStackSocket::new(&server_addrs)
                 .await
                 .map_err(|e| Error::Connection(format!("failed to bind UDP socket: {}", e)))?,
         );
+        if socket.has_ipv4() && socket.has_ipv6() {
+            self.log(LogLevel::Info, "Created dual-stack socket (IPv4 + IPv6)").await;
+        } else if socket.has_ipv6() {
+            self.log(LogLevel::Info, "Created IPv6 socket").await;
+        } else {
+            self.log(LogLevel::Info, "Created IPv4 socket").await;
+        }
 
         // Create session
         let mut session = Session::new_client();
@@ -1685,7 +1695,7 @@ table ip {table} {{
     async fn run_client_loop(
         &self,
         tun: Arc<TunDevice>,
-        socket: Arc<UdpSocket>,
+        socket: Arc<DualStackSocket>,
         cipher: Cipher,
         session: Session,
         server_addrs: Vec<SocketAddr>,
