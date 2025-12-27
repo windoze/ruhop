@@ -101,8 +101,8 @@ jobs:
       - name: Build x86_64
         run: cargo build --release --target x86_64-apple-darwin -p ruhop-cli
 
-  check-and-lint-and-build-windows:
-    name: Check/Lint/Build Windows
+  check-and-lint-and-build-windows-x86_64:
+    name: Check/Lint/Build Windows x86_64
     runs-on: windows-latest
     steps:
       - name: Checkout
@@ -119,3 +119,24 @@ jobs:
 
       - name: Build
         run: cargo build --release -p ruhop-cli
+
+  check-and-lint-and-build-windows-arm64:
+    name: Check/Lint/Build Windows arm64
+    runs-on: windows-11-arm
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-pc-windows-msvc
+
+      - name: Cargo check
+        run: cargo check --all-targets
+
+      - name: Cargo clippy
+        run: cargo clippy --all-targets -- -D warnings
+
+      - name: Build
+        run: cargo build --release --target aarch64-pc-windows-msvc -p ruhop-cli
