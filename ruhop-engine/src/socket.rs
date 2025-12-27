@@ -207,11 +207,7 @@ impl TrackedUdpSocket {
                         .and_then(|sa: SockaddrStorage| {
                             if let Some(sin) = sa.as_sockaddr_in() {
                                 Some(SocketAddr::V4(SocketAddrV4::new(sin.ip(), sin.port())))
-                            } else if let Some(sin6) = sa.as_sockaddr_in6() {
-                                Some(SocketAddr::V6(SocketAddrV6::new(sin6.ip(), sin6.port(), sin6.flowinfo(), sin6.scope_id())))
-                            } else {
-                                None
-                            }
+                            } else { sa.as_sockaddr_in6().map(|sin6| SocketAddr::V6(SocketAddrV6::new(sin6.ip(), sin6.port(), sin6.flowinfo(), sin6.scope_id()))) }
                         })
                         .ok_or_else(|| io::Error::other("no peer address"))?;
 
@@ -401,7 +397,7 @@ impl TrackedUdpSocket {
                 }
             }
             (SocketAddr::V6(dst_v6), IpAddr::V6(local_ip)) => {
-                let dst = SockaddrIn6::from(SocketAddrV6::new(dst_v6.ip().clone(), dst_v6.port(), dst_v6.flowinfo(), dst_v6.scope_id()));
+                let dst = SockaddrIn6::from(SocketAddrV6::new(*dst_v6.ip(), dst_v6.port(), dst_v6.flowinfo(), dst_v6.scope_id()));
 
                 let pktinfo = libc::in6_pktinfo {
                     ipi6_addr: libc::in6_addr {
