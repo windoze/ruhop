@@ -168,7 +168,7 @@ impl TrackedUdpSocket {
     /// Receive with platform-specific packet info to get the local destination address.
     #[cfg(target_os = "linux")]
     async fn recv_from_with_pktinfo(&self, buf: &mut [u8]) -> io::Result<RecvResult> {
-        use nix::sys::socket::{recvmsg, ControlMessageOwned, MsgFlags, SockaddrStorage, SockaddrIn, SockaddrIn6};
+        use nix::sys::socket::{recvmsg, ControlMessageOwned, MsgFlags, SockaddrStorage};
         use std::io::IoSliceMut;
         use std::net::{Ipv6Addr, SocketAddrV6};
 
