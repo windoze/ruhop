@@ -59,8 +59,8 @@ jobs:
       - name: Build
         run: cargo build --release --target aarch64-unknown-linux-musl -p ruhop-cli
 
-  check-and-lint-and-build-macos:
-    name: Check/Lint/Build macOS Universal
+  check-and-lint-and-build-macos-aarch64:
+    name: Check/Lint/Build macOS Apple Silicon
     runs-on: macos-latest
     steps:
       - name: Checkout
@@ -69,7 +69,28 @@ jobs:
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
         with:
-          targets: x86_64-apple-darwin,aarch64-apple-darwin
+          targets: aarch64-apple-darwin
+
+      - name: Cargo check
+        run: cargo check --all-targets
+
+      - name: Cargo clippy
+        run: cargo clippy --all-targets -- -D warnings
+
+      - name: Build aarch64
+        run: cargo build --release --target aarch64-apple-darwin -p ruhop-cli
+
+  check-and-lint-and-build-macos-x86_64:
+    name: Check/Lint/Build macOS Intel
+    runs-on: macos-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-apple-darwin
 
       - name: Cargo check
         run: cargo check --all-targets
@@ -79,9 +100,6 @@ jobs:
 
       - name: Build x86_64
         run: cargo build --release --target x86_64-apple-darwin -p ruhop-cli
-
-      - name: Build aarch64
-        run: cargo build --release --target aarch64-apple-darwin -p ruhop-cli
 
   check-and-lint-and-build-windows:
     name: Check/Lint/Build Windows
