@@ -1,0 +1,85 @@
+//! Pure Rust implementation of ipset/nftset operations via netlink.
+//!
+//! This crate provides functions to add, check, and remove IP addresses
+//! from Linux ipset and nftables sets using the netlink protocol.
+
+mod netlink;
+
+pub mod ipset;
+pub mod nftset;
+
+pub use ipset::{
+    ipset_add, ipset_create, ipset_del, ipset_destroy, ipset_flush, ipset_test, IpSetCreateOptions,
+    IpSetFamily, IpSetType,
+};
+pub use nftset::{
+    nftset_add, nftset_create_set, nftset_create_table, nftset_del, nftset_delete_set,
+    nftset_delete_table, nftset_test, NftSetCreateOptions, NftSetType,
+};
+
+use std::net::IpAddr;
+use thiserror::Error;
+
+/// Error type for ipset/nftset operations.
+#[derive(Error, Debug)]
+pub enum IpSetError {
+    #[error("Invalid set name: {0}")]
+    InvalidSetName(String),
+
+    #[error("Invalid address family")]
+    InvalidAddressFamily,
+
+    #[error("Socket error: {0}")]
+    SocketError(#[from] std::io::Error),
+
+    #[error("Netlink error: {0}")]
+    NetlinkError(i32),
+
+    #[error("Set not found: {0}")]
+    SetNotFound(String),
+
+    #[error("Element not found")]
+    ElementNotFound,
+
+    #[error("Element already exists")]
+    ElementExists,
+
+    #[error("Invalid table name: {0}")]
+    InvalidTableName(String),
+
+    #[error("Send/receive error")]
+    SendRecvError,
+
+    #[error("Protocol error")]
+    ProtocolError,
+}
+
+pub type Result<T> = std::result::Result<T, IpSetError>;
+
+/// IP address with optional timeout for set operations.
+pub struct IpEntry {
+    pub addr: IpAddr,
+    pub timeout: Option<u32>,
+}
+
+impl IpEntry {
+    pub fn new(addr: IpAddr) -> Self {
+        Self {
+            addr,
+            timeout: None,
+        }
+    }
+
+    pub fn with_timeout(addr: IpAddr, timeout: u32) -> Self {
+        Self {
+            addr,
+            timeout: Some(timeout),
+        }
+    }
+}
+
+impl From<IpAddr> for IpEntry {
+    fn from(addr: IpAddr) -> Self {
+        Self::new(addr)
+    }
+}

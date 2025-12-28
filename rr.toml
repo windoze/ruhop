@@ -1,0 +1,32 @@
+[common]
+key = "dSQaVkDsU7PTt6pU"
+log_level = "info"
+log_file = "/var/log/ruhop"
+log_rotation = "daily"
+control_socket = "/home/chenxu/tmp/ruhop.sock"
+
+obfuscation = true
+
+[client]
+server = ["4.194.9.156", "4.194.148.25", "23.98.95.105"]
+port_range = [52000, 52500]
+route_all_traffic = false
+auto_reconnect = true
+max_reconnect_attempts = 0
+reconnect_delay = 5
+
+# Script to run when VPN connects (optional)
+# Arguments: <local_ip> <peer_ip> <netmask> <tun_device>
+on_connect = "/etc/ruhop/scripts/up.sh"
+
+# Script to run when VPN disconnects (optional)
+# Arguments: <local_ip> <peer_ip> <netmask> <tun_device>
+on_disconnect = "/etc/ruhop/scripts/down.sh"
+
+# DNS proxy settings
+# [client.dns_proxy]
+# enabled = true
+# port = 53
+# filter_ipv6 = false
+# ipset = "freeset"
+

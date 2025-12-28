@@ -1,0 +1,14 @@
+[package]
+name = "ruhop-ipset"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Pure Rust implementation of ipset/nftset operations via netlink"
+
+[dependencies]
+thiserror = "2"
+libc = "0.2"
+
+[dev-dependencies]

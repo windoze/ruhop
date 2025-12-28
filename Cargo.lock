@@ -2308,6 +2308,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "ruhop-ipset"
+version = "0.19.0"
+dependencies = [
+ "libc",
+ "thiserror 2.0.17",
+]
+
+[[package]]
 name = "rustc-hash"
 version = "2.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
