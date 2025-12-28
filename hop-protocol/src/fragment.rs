@@ -148,10 +148,7 @@ impl FragmentAssembler {
 }
 
 /// Fragment a large packet into smaller pieces
-pub fn fragment_packet(
-    packet: &Packet,
-    max_fragment_size: usize,
-) -> Result<Vec<Packet>> {
+pub fn fragment_packet(packet: &Packet, max_fragment_size: usize) -> Result<Vec<Packet>> {
     let payload = &packet.payload;
     let total_len = payload.len();
 
@@ -258,7 +255,9 @@ mod tests {
         }
 
         // Process last fragment
-        let result = assembler.process(fragments.last().unwrap().clone()).unwrap();
+        let result = assembler
+            .process(fragments.last().unwrap().clone())
+            .unwrap();
         assert!(result.is_some());
 
         let reassembled = result.unwrap();

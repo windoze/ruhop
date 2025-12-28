@@ -30,7 +30,8 @@ pub const SERVICE_NAME: &str = "ruhop";
 const SERVICE_DISPLAY_NAME: &str = "Ruhop VPN";
 
 /// Service description
-const SERVICE_DESCRIPTION: &str = "Ruhop VPN - A Rust implementation of GoHop protocol with port hopping capabilities";
+const SERVICE_DESCRIPTION: &str =
+    "Ruhop VPN - A Rust implementation of GoHop protocol with port hopping capabilities";
 
 /// Service type - we run as our own process
 const SERVICE_TYPE: ServiceType = ServiceType::OWN_PROCESS;
@@ -46,11 +47,12 @@ const SERVICE_CONFIG_PATH: &str = r"C:\ProgramData\Ruhop\ruhop.toml";
 /// Install the service
 pub fn install_service(config_path: &PathBuf, role: &str) -> Result<()> {
     let manager_access = ServiceManagerAccess::CONNECT | ServiceManagerAccess::CREATE_SERVICE;
-    let service_manager =
-        ServiceManager::local_computer(None::<&str>, manager_access).context("Failed to connect to service manager")?;
+    let service_manager = ServiceManager::local_computer(None::<&str>, manager_access)
+        .context("Failed to connect to service manager")?;
 
     // Get the path to our executable
-    let service_binary_path = std::env::current_exe().context("Failed to get current executable path")?;
+    let service_binary_path =
+        std::env::current_exe().context("Failed to get current executable path")?;
 
     // Copy config file to standard location
     let dest_config_path = copy_config_to_programdata(config_path)?;
@@ -62,16 +64,17 @@ pub fn install_service(config_path: &PathBuf, role: &str) -> Result<()> {
         start_type: ServiceStartType::AutoStart,
         error_control: ServiceErrorControl::Normal,
         executable_path: service_binary_path,
-        launch_arguments: vec![
-            OsString::from("service-run"),
-        ],
+        launch_arguments: vec![OsString::from("service-run")],
         dependencies: vec![],
         account_name: None, // LocalSystem
         account_password: None,
     };
 
     let service = service_manager
-        .create_service(&service_info, ServiceAccess::CHANGE_CONFIG | ServiceAccess::START)
+        .create_service(
+            &service_info,
+            ServiceAccess::CHANGE_CONFIG | ServiceAccess::START,
+        )
         .context("Failed to create service")?;
 
     // Set service description
@@ -95,7 +98,10 @@ pub fn install_service(config_path: &PathBuf, role: &str) -> Result<()> {
     println!("Next steps:");
     println!("  Start service:  ruhop service start");
     println!("  Check status:   ruhop service status");
-    println!("  View logs:      type {}\\ruhop-service.log", SERVICE_CONFIG_DIR);
+    println!(
+        "  View logs:      type {}\\ruhop-service.log",
+        SERVICE_CONFIG_DIR
+    );
 
     Ok(())
 }
@@ -118,7 +124,10 @@ fn copy_config_to_programdata(source_path: &PathBuf) -> Result<String> {
     fs::write(dest_path, &config_content)
         .with_context(|| format!("Failed to write config to: {}", SERVICE_CONFIG_PATH))?;
 
-    println!("Copied configuration from {:?} to {}", source_path, SERVICE_CONFIG_PATH);
+    println!(
+        "Copied configuration from {:?} to {}",
+        source_path, SERVICE_CONFIG_PATH
+    );
 
     Ok(SERVICE_CONFIG_PATH.to_string())
 }
@@ -136,9 +145,12 @@ fn save_service_config(config_path: &str, role: &str) -> Result<()> {
         .args([
             "add",
             &full_key,
-            "/v", "ConfigPath",
-            "/t", "REG_SZ",
-            "/d", config_path,
+            "/v",
+            "ConfigPath",
+            "/t",
+            "REG_SZ",
+            "/d",
+            config_path,
             "/f",
         ])
         .output()
@@ -157,12 +169,7 @@ fn save_service_config(config_path: &str, role: &str) -> Result<()> {
     // Set Role
     let output = Command::new("reg")
         .args([
-            "add",
-            &full_key,
-            "/v", "Role",
-            "/t", "REG_SZ",
-            "/d", role,
-            "/f",
+            "add", &full_key, "/v", "Role", "/t", "REG_SZ", "/d", role, "/f",
         ])
         .output()
         .context("Failed to run reg command")?;
@@ -189,11 +196,7 @@ fn load_service_config() -> Result<(PathBuf, String)> {
 
     // Query ConfigPath
     let output = Command::new("reg")
-        .args([
-            "query",
-            &full_key,
-            "/v", "ConfigPath",
-        ])
+        .args(["query", &full_key, "/v", "ConfigPath"])
         .output()
         .context("Failed to query registry")?;
 
@@ -207,18 +210,13 @@ fn load_service_config() -> Result<(PathBuf, String)> {
 
     // Query Role
     let output = Command::new("reg")
-        .args([
-            "query",
-            &full_key,
-            "/v", "Role",
-        ])
+        .args(["query", &full_key, "/v", "Role"])
         .output()
         .context("Failed to query registry")?;
 
     let role = if output.status.success() {
         let stdout = String::from_utf8_lossy(&output.stdout);
-        parse_reg_value(&stdout, "Role")
-            .unwrap_or_else(|| "client".to_string())
+        parse_reg_value(&stdout, "Role").unwrap_or_else(|| "client".to_string())
     } else {
         "client".to_string()
     };
@@ -244,8 +242,8 @@ fn parse_reg_value(output: &str, value_name: &str) -> Option<String> {
 /// Uninstall the service
 pub fn uninstall_service() -> Result<()> {
     let manager_access = ServiceManagerAccess::CONNECT;
-    let service_manager =
-        ServiceManager::local_computer(None::<&str>, manager_access).context("Failed to connect to service manager")?;
+    let service_manager = ServiceManager::local_computer(None::<&str>, manager_access)
+        .context("Failed to connect to service manager")?;
 
     let service_access = ServiceAccess::QUERY_STATUS | ServiceAccess::STOP | ServiceAccess::DELETE;
     let service = service_manager
@@ -253,7 +251,9 @@ pub fn uninstall_service() -> Result<()> {
         .context("Failed to open service. Is it installed?")?;
 
     // Stop the service if running
-    let status = service.query_status().context("Failed to query service status")?;
+    let status = service
+        .query_status()
+        .context("Failed to query service status")?;
     if status.current_state != ServiceState::Stopped {
         println!("Stopping service...");
         service.stop().context("Failed to stop service")?;
@@ -291,14 +291,19 @@ pub fn uninstall_service() -> Result<()> {
 /// Start the service
 pub fn start_service() -> Result<()> {
     let manager_access = ServiceManagerAccess::CONNECT;
-    let service_manager =
-        ServiceManager::local_computer(None::<&str>, manager_access).context("Failed to connect to service manager")?;
+    let service_manager = ServiceManager::local_computer(None::<&str>, manager_access)
+        .context("Failed to connect to service manager")?;
 
     let service = service_manager
-        .open_service(SERVICE_NAME, ServiceAccess::START | ServiceAccess::QUERY_STATUS)
+        .open_service(
+            SERVICE_NAME,
+            ServiceAccess::START | ServiceAccess::QUERY_STATUS,
+        )
         .context("Failed to open service. Is it installed?")?;
 
-    let status = service.query_status().context("Failed to query service status")?;
+    let status = service
+        .query_status()
+        .context("Failed to query service status")?;
     if status.current_state == ServiceState::Running {
         println!("Service is already running.");
         return Ok(());
@@ -311,7 +316,10 @@ pub fn start_service() -> Result<()> {
     println!("Service '{}' started.", SERVICE_NAME);
     println!();
     println!("Check status: ruhop service status");
-    println!("View logs:    type {}\\ruhop-service.log", SERVICE_CONFIG_DIR);
+    println!(
+        "View logs:    type {}\\ruhop-service.log",
+        SERVICE_CONFIG_DIR
+    );
 
     Ok(())
 }
@@ -319,14 +327,19 @@ pub fn start_service() -> Result<()> {
 /// Stop the service
 pub fn stop_service() -> Result<()> {
     let manager_access = ServiceManagerAccess::CONNECT;
-    let service_manager =
-        ServiceManager::local_computer(None::<&str>, manager_access).context("Failed to connect to service manager")?;
+    let service_manager = ServiceManager::local_computer(None::<&str>, manager_access)
+        .context("Failed to connect to service manager")?;
 
     let service = service_manager
-        .open_service(SERVICE_NAME, ServiceAccess::STOP | ServiceAccess::QUERY_STATUS)
+        .open_service(
+            SERVICE_NAME,
+            ServiceAccess::STOP | ServiceAccess::QUERY_STATUS,
+        )
         .context("Failed to open service. Is it installed?")?;
 
-    let status = service.query_status().context("Failed to query service status")?;
+    let status = service
+        .query_status()
+        .context("Failed to query service status")?;
     if status.current_state == ServiceState::Stopped {
         println!("Service is already stopped.");
         return Ok(());
@@ -344,12 +357,13 @@ pub fn stop_service() -> Result<()> {
 /// Query service status
 pub fn query_service_status() -> Result<()> {
     let manager_access = ServiceManagerAccess::CONNECT;
-    let service_manager =
-        ServiceManager::local_computer(None::<&str>, manager_access).context("Failed to connect to service manager")?;
+    let service_manager = ServiceManager::local_computer(None::<&str>, manager_access)
+        .context("Failed to connect to service manager")?;
 
-    let service = match service_manager
-        .open_service(SERVICE_NAME, ServiceAccess::QUERY_STATUS | ServiceAccess::QUERY_CONFIG)
-    {
+    let service = match service_manager.open_service(
+        SERVICE_NAME,
+        ServiceAccess::QUERY_STATUS | ServiceAccess::QUERY_CONFIG,
+    ) {
         Ok(s) => s,
         Err(_) => {
             println!("Service '{}' Status", SERVICE_NAME);
@@ -362,7 +376,9 @@ pub fn query_service_status() -> Result<()> {
         }
     };
 
-    let status = service.query_status().context("Failed to query service status")?;
+    let status = service
+        .query_status()
+        .context("Failed to query service status")?;
 
     let state_str = match status.current_state {
         ServiceState::Stopped => "Stopped",
@@ -436,10 +452,7 @@ fn init_service_logging() {
 
     // Open log file
     let log_path = log_dir.join("ruhop-service.log");
-    let log_file = OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(&log_path);
+    let log_file = OpenOptions::new().create(true).append(true).open(&log_path);
 
     match log_file {
         Ok(file) => {
@@ -449,7 +462,7 @@ fn init_service_logging() {
                 .with(
                     tracing_subscriber::fmt::layer()
                         .with_writer(std::sync::Mutex::new(file))
-                        .with_ansi(false)
+                        .with_ansi(false),
                 )
                 .try_init();
         }

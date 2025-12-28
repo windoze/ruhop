@@ -123,10 +123,7 @@ impl VpnStats {
 #[derive(Debug, Clone)]
 pub enum VpnEvent {
     /// State changed
-    StateChanged {
-        old: VpnState,
-        new: VpnState,
-    },
+    StateChanged { old: VpnState, new: VpnState },
 
     /// Connected to server (client mode only)
     Connected {
@@ -246,10 +243,15 @@ impl EventHandler for LoggingEventHandler {
                     log::info!("Connected: tunnel={}", tunnel_ip);
                 }
             }
-            VpnEvent::ServerReady { tunnel_ip, port_range } => {
+            VpnEvent::ServerReady {
+                tunnel_ip,
+                port_range,
+            } => {
                 log::info!(
                     "Server ready: tunnel={}, ports={}-{}",
-                    tunnel_ip, port_range.0, port_range.1
+                    tunnel_ip,
+                    port_range.0,
+                    port_range.1
                 );
             }
             VpnEvent::Disconnected { reason } => {
@@ -266,7 +268,11 @@ impl EventHandler for LoggingEventHandler {
                 );
             }
             VpnEvent::ClientDisconnected { session_id, reason } => {
-                log::info!("Client disconnected: session={}, reason={}", session_id, reason);
+                log::info!(
+                    "Client disconnected: session={}, reason={}",
+                    session_id,
+                    reason
+                );
             }
             VpnEvent::StatsUpdate(stats) => {
                 log::debug!(

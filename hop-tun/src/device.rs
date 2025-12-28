@@ -190,8 +190,9 @@ impl TunDevice {
     /// ```
     #[cfg(all(unix, feature = "async-tokio"))]
     pub unsafe fn from_fd(fd: RawFd, name: impl Into<String>, mtu: u16) -> Result<Self> {
-        let device = tun_rs::AsyncDevice::from_fd(fd)
-            .map_err(|e| Error::DeviceCreation(format!("failed to create device from fd: {}", e)))?;
+        let device = tun_rs::AsyncDevice::from_fd(fd).map_err(|e| {
+            Error::DeviceCreation(format!("failed to create device from fd: {}", e))
+        })?;
 
         let name = name.into();
         log::info!("Created TUN device from fd {}: {} (MTU: {})", fd, name, mtu);
@@ -207,8 +208,9 @@ impl TunDevice {
     /// See [`from_fd`](Self::from_fd) for detailed documentation.
     #[cfg(all(unix, not(feature = "async-tokio"), not(feature = "async-std")))]
     pub unsafe fn from_fd(fd: RawFd, name: impl Into<String>, mtu: u16) -> Result<Self> {
-        let device = tun_rs::SyncDevice::from_fd(fd)
-            .map_err(|e| Error::DeviceCreation(format!("failed to create device from fd: {}", e)))?;
+        let device = tun_rs::SyncDevice::from_fd(fd).map_err(|e| {
+            Error::DeviceCreation(format!("failed to create device from fd: {}", e))
+        })?;
 
         let name = name.into();
         log::info!("Created TUN device from fd {}: {} (MTU: {})", fd, name, mtu);
@@ -230,7 +232,11 @@ impl TunDevice {
     ///
     /// The caller must ensure the fd remains valid for the device's lifetime.
     #[cfg(all(unix, feature = "async-tokio"))]
-    pub unsafe fn borrow_fd<'a>(fd: RawFd, name: impl Into<String>, mtu: u16) -> Result<BorrowedTunDevice<'a>> {
+    pub unsafe fn borrow_fd<'a>(
+        fd: RawFd,
+        name: impl Into<String>,
+        mtu: u16,
+    ) -> Result<BorrowedTunDevice<'a>> {
         let device = tun_rs::BorrowedAsyncDevice::borrow_raw(fd)
             .map_err(|e| Error::DeviceCreation(format!("failed to borrow fd: {}", e)))?;
 

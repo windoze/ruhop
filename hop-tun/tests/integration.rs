@@ -36,17 +36,14 @@
 //! - `test_*` - Basic unit tests (no privileges required)
 //! - `test_privileged_*` - Tests requiring root/admin (marked with `#[ignore]`)
 
-use hop_tun::{TunConfig, Route, RouteManager};
-use std::net::{Ipv4Addr, Ipv6Addr};
+use hop_tun::{Route, RouteManager, TunConfig};
 use ipnet::IpNet;
+use std::net::{Ipv4Addr, Ipv6Addr};
 
 /// Test that configuration validation works correctly
 #[test]
 fn test_config_validation_requires_address() {
-    let result = TunConfig::builder()
-        .name("test0")
-        .mtu(1400)
-        .build();
+    let result = TunConfig::builder().name("test0").mtu(1400).build();
 
     assert!(result.is_err());
 }
@@ -105,7 +102,8 @@ fn test_route_creation() {
         Ipv4Addr::new(10, 0, 0, 0),
         24,
         Some(Ipv4Addr::new(192, 168, 1, 1)),
-    ).unwrap();
+    )
+    .unwrap();
 
     assert!(route.is_ipv4());
     assert!(!route.is_default());
@@ -185,7 +183,9 @@ async fn test_privileged_tun_device_read_timeout() {
         .build()
         .unwrap();
 
-    let device = TunDevice::create(config).await.expect("Failed to create TUN device");
+    let device = TunDevice::create(config)
+        .await
+        .expect("Failed to create TUN device");
 
     let mut buf = vec![0u8; 2000];
 
@@ -199,7 +199,9 @@ async fn test_privileged_tun_device_read_timeout() {
 #[tokio::test]
 #[ignore = "requires root/admin privileges"]
 async fn test_privileged_route_management() {
-    let manager = RouteManager::new().await.expect("Failed to create route manager");
+    let manager = RouteManager::new()
+        .await
+        .expect("Failed to create route manager");
 
     // List routes
     let routes = manager.list().await.expect("Failed to list routes");
@@ -215,14 +217,17 @@ async fn test_privileged_route_management() {
 #[tokio::test]
 #[ignore = "requires root/admin privileges and may modify system routes"]
 async fn test_privileged_route_add_remove() {
-    let manager = RouteManager::new().await.expect("Failed to create route manager");
+    let manager = RouteManager::new()
+        .await
+        .expect("Failed to create route manager");
 
     // Add a test route to a private network that shouldn't exist
     let route = Route::ipv4(
         Ipv4Addr::new(10, 254, 254, 0),
         24,
-        Some(Ipv4Addr::new(127, 0, 0, 1)),  // Route to localhost for testing
-    ).unwrap();
+        Some(Ipv4Addr::new(127, 0, 0, 1)), // Route to localhost for testing
+    )
+    .unwrap();
 
     // Add route
     let add_result = manager.add(&route).await;
@@ -243,7 +248,10 @@ async fn test_privileged_nat_setup() {
     let mut manager = match NatManager::new(None) {
         Ok(m) => m,
         Err(e) => {
-            println!("NAT manager creation failed (expected if no firewall tools): {:?}", e);
+            println!(
+                "NAT manager creation failed (expected if no firewall tools): {:?}",
+                e
+            );
             return;
         }
     };

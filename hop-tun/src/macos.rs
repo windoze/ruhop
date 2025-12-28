@@ -356,8 +356,7 @@ pub use network_extension::*;
 ///
 /// For example, "utun3" returns Some(3)
 pub fn parse_utun_number(name: &str) -> Option<u32> {
-    name.strip_prefix("utun")
-        .and_then(|n| n.parse().ok())
+    name.strip_prefix("utun").and_then(|n| n.parse().ok())
 }
 
 /// Get the next available utun device number
@@ -485,7 +484,8 @@ pub fn get_primary_interface() -> Result<String> {
 pub fn get_primary_interface_address() -> Result<String> {
     let iface = get_primary_interface()?;
     let info = get_interface_info(&iface)?;
-    info.ipv4.ok_or_else(|| Error::Route("primary interface has no IPv4 address".into()))
+    info.ipv4
+        .ok_or_else(|| Error::Route("primary interface has no IPv4 address".into()))
 }
 
 #[cfg(test)]

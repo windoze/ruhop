@@ -21,8 +21,7 @@ pub mod flags {
 
 /// Get the interface index for a given interface name
 pub fn get_interface_index(name: &str) -> Result<u32> {
-    let c_name = CString::new(name)
-        .map_err(|_| Error::Config("invalid interface name".into()))?;
+    let c_name = CString::new(name).map_err(|_| Error::Config("invalid interface name".into()))?;
 
     // SAFETY: if_nametoindex is safe to call with a valid C string
     let index = unsafe { libc::if_nametoindex(c_name.as_ptr()) };
@@ -43,8 +42,7 @@ pub fn set_interface_flags(name: &str, flags: i32) -> Result<()> {
         return Err(Error::Io(std::io::Error::last_os_error()));
     }
 
-    let c_name = CString::new(name)
-        .map_err(|_| Error::Config("invalid interface name".into()))?;
+    let c_name = CString::new(name).map_err(|_| Error::Config("invalid interface name".into()))?;
 
     let mut ifr: libc::ifreq = unsafe { mem::zeroed() };
 
@@ -63,9 +61,7 @@ pub fn set_interface_flags(name: &str, flags: i32) -> Result<()> {
 
     ifr.ifr_ifru.ifru_flags = flags as i16;
 
-    let result = unsafe {
-        libc::ioctl(socket, libc::SIOCSIFFLAGS as _, &ifr)
-    };
+    let result = unsafe { libc::ioctl(socket, libc::SIOCSIFFLAGS as _, &ifr) };
 
     unsafe { libc::close(socket) };
 
@@ -103,7 +99,11 @@ pub fn configure_offload(name: &str, enable: bool) -> Result<()> {
             .output();
     }
 
-    log::info!("Offloading {} for {}", if enable { "enabled" } else { "disabled" }, name);
+    log::info!(
+        "Offloading {} for {}",
+        if enable { "enabled" } else { "disabled" },
+        name
+    );
     Ok(())
 }
 

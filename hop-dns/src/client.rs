@@ -135,7 +135,13 @@ impl DnsClient {
     ///
     /// Uses the default strategy (FirstReply), IPv6 filtering disabled, and no bind address.
     pub fn new(upstreams: Vec<DnsServerSpec>, cache_size: usize) -> Result<Self> {
-        Self::with_all_options(upstreams, cache_size, UpstreamStrategy::default(), false, None)
+        Self::with_all_options(
+            upstreams,
+            cache_size,
+            UpstreamStrategy::default(),
+            false,
+            None,
+        )
     }
 
     /// Create a new DNS client with the given upstream servers and strategy
@@ -468,9 +474,12 @@ async fn query_udp_static(
         }
     };
 
-    let socket = UdpSocket::bind(bind_socket_addr)
-        .await
-        .map_err(|e| Error::Dns(format!("failed to bind UDP socket to {:?}: {}", bind_addr, e)))?;
+    let socket = UdpSocket::bind(bind_socket_addr).await.map_err(|e| {
+        Error::Dns(format!(
+            "failed to bind UDP socket to {:?}: {}",
+            bind_addr, e
+        ))
+    })?;
 
     socket
         .send_to(query, addr)
@@ -845,13 +854,8 @@ mod tests {
             addr: "8.8.8.8:53".parse().unwrap(),
         }];
 
-        let client = DnsClient::with_options(
-            upstreams,
-            100,
-            UpstreamStrategy::FirstReply,
-            true,
-        )
-        .unwrap();
+        let client =
+            DnsClient::with_options(upstreams, 100, UpstreamStrategy::FirstReply, true).unwrap();
         assert!(client.filter_ipv6());
     }
 
@@ -861,13 +865,8 @@ mod tests {
             addr: "8.8.8.8:53".parse().unwrap(),
         }];
 
-        let client = DnsClient::with_options(
-            upstreams,
-            100,
-            UpstreamStrategy::Random,
-            false,
-        )
-        .unwrap();
+        let client =
+            DnsClient::with_options(upstreams, 100, UpstreamStrategy::Random, false).unwrap();
         assert!(!client.filter_ipv6());
         assert_eq!(client.strategy(), UpstreamStrategy::Random);
     }
@@ -1038,14 +1037,9 @@ mod tests {
             addr: "8.8.8.8:53".parse().unwrap(),
         }];
 
-        let client = DnsClient::with_all_options(
-            upstreams,
-            100,
-            UpstreamStrategy::Random,
-            true,
-            None,
-        )
-        .unwrap();
+        let client =
+            DnsClient::with_all_options(upstreams, 100, UpstreamStrategy::Random, true, None)
+                .unwrap();
 
         assert!(client.bind_addr().is_none());
         assert!(client.filter_ipv6());

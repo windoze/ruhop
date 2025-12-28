@@ -59,7 +59,11 @@ fn ipset_operate(setname: &str, entry: &IpEntry, cmd: u8) -> Result<()> {
 
     // Determine address family
     let (family, addr_type, addr_bytes): (u8, u16, Vec<u8>) = match entry.addr {
-        IpAddr::V4(v4) => (libc::AF_INET as u8, IPSET_ATTR_IPADDR_IPV4, v4.octets().to_vec()),
+        IpAddr::V4(v4) => (
+            libc::AF_INET as u8,
+            IPSET_ATTR_IPADDR_IPV4,
+            v4.octets().to_vec(),
+        ),
         IpAddr::V6(v6) => (
             libc::AF_INET6 as u8,
             IPSET_ATTR_IPADDR_IPV6,

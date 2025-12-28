@@ -6,9 +6,9 @@
 use std::net::IpAddr;
 
 use crate::netlink::{
-    get_nlmsg_type, is_nlmsg_done, parse_nlmsg_error, MsgBuffer, NetlinkSocket, NfGenMsg,
-    NlMsgHdr, NLA_F_NESTED, NFNL_MSG_BATCH_BEGIN, NFNL_MSG_BATCH_END, NFNL_SUBSYS_NFTABLES,
-    NLM_F_ACK, NLM_F_CREATE, NLM_F_REQUEST,
+    get_nlmsg_type, is_nlmsg_done, parse_nlmsg_error, MsgBuffer, NetlinkSocket, NfGenMsg, NlMsgHdr,
+    NFNL_MSG_BATCH_BEGIN, NFNL_MSG_BATCH_END, NFNL_SUBSYS_NFTABLES, NLA_F_NESTED, NLM_F_ACK,
+    NLM_F_CREATE, NLM_F_REQUEST,
 };
 use crate::{IpEntry, IpSetError, Result};
 
@@ -541,8 +541,7 @@ fn nftset_get_flags(family: &str, table: &str, setname: &str) -> Result<u32> {
     }
 
     // Parse response to find flags
-    let hdr: NlMsgHdr =
-        unsafe { std::ptr::read_unaligned(recv_buf.as_ptr() as *const NlMsgHdr) };
+    let hdr: NlMsgHdr = unsafe { std::ptr::read_unaligned(recv_buf.as_ptr() as *const NlMsgHdr) };
 
     if hdr.nlmsg_type == crate::netlink::NLMSG_ERROR {
         // This is an error response, not set data
@@ -670,7 +669,9 @@ fn nftset_operate(
         match nftset_test_ip_exists(family, table, setname, &entry.addr) {
             Ok(true) => return Err(IpSetError::ElementExists),
             Ok(false) => {}
-            Err(IpSetError::SetNotFound(_)) => return Err(IpSetError::SetNotFound(setname.to_string())),
+            Err(IpSetError::SetNotFound(_)) => {
+                return Err(IpSetError::SetNotFound(setname.to_string()))
+            }
             Err(_) => {} // Continue with add
         }
     }
@@ -813,7 +814,12 @@ fn nftset_operate(
 /// let addr: IpAddr = "192.168.1.1".parse().unwrap();
 /// nftset_add("inet", "filter", "myset", addr).unwrap();
 /// ```
-pub fn nftset_add<E: Into<IpEntry>>(family: &str, table: &str, setname: &str, entry: E) -> Result<()> {
+pub fn nftset_add<E: Into<IpEntry>>(
+    family: &str,
+    table: &str,
+    setname: &str,
+    entry: E,
+) -> Result<()> {
     nftset_operate(family, table, setname, &entry.into(), NFT_MSG_NEWSETELEM)
 }
 
@@ -835,7 +841,12 @@ pub fn nftset_add<E: Into<IpEntry>>(family: &str, table: &str, setname: &str, en
 /// let addr: IpAddr = "192.168.1.1".parse().unwrap();
 /// nftset_del("inet", "filter", "myset", addr).unwrap();
 /// ```
-pub fn nftset_del<E: Into<IpEntry>>(family: &str, table: &str, setname: &str, entry: E) -> Result<()> {
+pub fn nftset_del<E: Into<IpEntry>>(
+    family: &str,
+    table: &str,
+    setname: &str,
+    entry: E,
+) -> Result<()> {
     nftset_operate(family, table, setname, &entry.into(), NFT_MSG_DELSETELEM)
 }
 

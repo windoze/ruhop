@@ -301,8 +301,8 @@ async fn run_server(config_path: PathBuf) -> Result<()> {
     info!("Starting Ruhop VPN server...");
 
     let config = load_config(&config_path)?;
-    let mut engine = VpnEngine::new(config, VpnRole::Server)
-        .context("Failed to create VPN engine")?;
+    let mut engine =
+        VpnEngine::new(config, VpnRole::Server).context("Failed to create VPN engine")?;
 
     info!("Configuration loaded from {:?}", config_path);
 
@@ -325,10 +325,7 @@ async fn run_server(config_path: PathBuf) -> Result<()> {
     let _ = shutdown_tx.send(());
 
     // Wait for the engine to finish (with timeout)
-    let _ = tokio::time::timeout(
-        std::time::Duration::from_secs(5),
-        engine_handle
-    ).await;
+    let _ = tokio::time::timeout(std::time::Duration::from_secs(5), engine_handle).await;
 
     Ok(())
 }
@@ -337,8 +334,8 @@ async fn run_client(config_path: PathBuf) -> Result<()> {
     info!("Starting Ruhop VPN client...");
 
     let config = load_config(&config_path)?;
-    let mut engine = VpnEngine::new(config, VpnRole::Client)
-        .context("Failed to create VPN engine")?;
+    let mut engine =
+        VpnEngine::new(config, VpnRole::Client).context("Failed to create VPN engine")?;
 
     info!("Configuration loaded from {:?}", config_path);
 
@@ -361,17 +358,13 @@ async fn run_client(config_path: PathBuf) -> Result<()> {
     let _ = shutdown_tx.send(());
 
     // Wait for the engine to finish (with timeout)
-    let _ = tokio::time::timeout(
-        std::time::Duration::from_secs(5),
-        engine_handle
-    ).await;
+    let _ = tokio::time::timeout(std::time::Duration::from_secs(5), engine_handle).await;
 
     Ok(())
 }
 
 fn load_config(path: &PathBuf) -> Result<Config> {
-    Config::load(path)
-        .with_context(|| format!("Failed to load configuration from {:?}", path))
+    Config::load(path).with_context(|| format!("Failed to load configuration from {:?}", path))
 }
 
 async fn show_status(socket_path: String, json: bool) -> Result<()> {
@@ -403,8 +396,16 @@ async fn show_status(socket_path: String, json: bool) -> Result<()> {
             println!();
             println!("Traffic Statistics");
             println!("------------------");
-            println!("Bytes RX:        {} ({})", status.bytes_rx, format_bytes(status.bytes_rx));
-            println!("Bytes TX:        {} ({})", status.bytes_tx, format_bytes(status.bytes_tx));
+            println!(
+                "Bytes RX:        {} ({})",
+                status.bytes_rx,
+                format_bytes(status.bytes_rx)
+            );
+            println!(
+                "Bytes TX:        {} ({})",
+                status.bytes_tx,
+                format_bytes(status.bytes_tx)
+            );
             println!("Packets RX:      {}", status.packets_rx);
             println!("Packets TX:      {}", status.packets_tx);
 
@@ -508,7 +509,8 @@ fn encode_config(config_path: PathBuf) -> Result<()> {
     let config = load_config(&config_path)?;
 
     // Extract client configuration
-    let client = config.client_config()
+    let client = config
+        .client_config()
         .context("encode requires a client configuration section")?;
 
     // Build ShareConfig from the loaded config
@@ -545,7 +547,8 @@ fn generate_qr(config_path: PathBuf) -> Result<()> {
     let config = load_config(&config_path)?;
 
     // Extract client configuration
-    let client = config.client_config()
+    let client = config
+        .client_config()
         .context("qr requires a client configuration section")?;
 
     // Build ShareConfig from the loaded config
@@ -564,11 +567,11 @@ fn generate_qr(config_path: PathBuf) -> Result<()> {
     let url = share_config.to_url()?;
 
     // Generate QR code
-    let code = QrCode::new(url.as_bytes())
-        .context("Failed to generate QR code")?;
+    let code = QrCode::new(url.as_bytes()).context("Failed to generate QR code")?;
 
     // Display in terminal using Unicode block characters
-    let string = code.render::<char>()
+    let string = code
+        .render::<char>()
         .quiet_zone(true)
         .module_dimensions(2, 1)
         .build();

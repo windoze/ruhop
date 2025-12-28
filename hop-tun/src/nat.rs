@@ -75,7 +75,8 @@ impl FirewallBackend {
                     Ok(FirewallBackend::Iptables)
                 } else {
                     Err(Error::Nat(
-                        "no firewall backend available: neither 'nft' nor 'iptables' command found".into(),
+                        "no firewall backend available: neither 'nft' nor 'iptables' command found"
+                            .into(),
                     ))
                 }
             }
@@ -469,10 +470,14 @@ table ip {table} {{
     #[cfg(target_os = "linux")]
     fn add_rule_iptables(&self, rule: &NatRule) -> Result<()> {
         let mut args = vec![
-            "-t", "nat",
-            "-A", "POSTROUTING",
-            "-s", &rule.source,
-            "-o", &rule.out_interface,
+            "-t",
+            "nat",
+            "-A",
+            "POSTROUTING",
+            "-s",
+            &rule.source,
+            "-o",
+            &rule.out_interface,
         ];
 
         let snat_addr_str;
@@ -502,10 +507,14 @@ table ip {table} {{
         // Also add FORWARD rules
         let forward_output = Command::new("iptables")
             .args([
-                "-A", "FORWARD",
-                "-s", &rule.source,
-                "-o", &rule.out_interface,
-                "-j", "ACCEPT"
+                "-A",
+                "FORWARD",
+                "-s",
+                &rule.source,
+                "-o",
+                &rule.out_interface,
+                "-j",
+                "ACCEPT",
             ])
             .output()
             .map_err(|e| Error::Nat(format!("failed to add FORWARD rule: {}", e)))?;
@@ -520,11 +529,16 @@ table ip {table} {{
         // Add reverse FORWARD rule for established connections
         let _ = Command::new("iptables")
             .args([
-                "-A", "FORWARD",
-                "-d", &rule.source,
-                "-m", "state",
-                "--state", "RELATED,ESTABLISHED",
-                "-j", "ACCEPT"
+                "-A",
+                "FORWARD",
+                "-d",
+                &rule.source,
+                "-m",
+                "state",
+                "--state",
+                "RELATED,ESTABLISHED",
+                "-j",
+                "ACCEPT",
             ])
             .output();
 
@@ -580,9 +594,13 @@ table ip {table} {{
 
         let output = Command::new("netsh")
             .args([
-                "routing", "ip", "nat", "add", "interface",
+                "routing",
+                "ip",
+                "nat",
+                "add",
+                "interface",
                 &rule.out_interface,
-                "full"
+                "full",
             ])
             .output()
             .map_err(|e| Error::Nat(format!("failed to run netsh: {}", e)))?;
@@ -616,7 +634,11 @@ table ip {table} {{
         }
 
         self.applied_rules.retain(|r| r.source != rule.source);
-        log::info!("Removed NAT rule: {} -> {}", rule.source, rule.out_interface);
+        log::info!(
+            "Removed NAT rule: {} -> {}",
+            rule.source,
+            rule.out_interface
+        );
         Ok(())
     }
 
@@ -640,10 +662,14 @@ table ip {table} {{
     #[cfg(target_os = "linux")]
     fn remove_rule_iptables(&self, rule: &NatRule) -> Result<()> {
         let mut args = vec![
-            "-t", "nat",
-            "-D", "POSTROUTING",
-            "-s", &rule.source,
-            "-o", &rule.out_interface,
+            "-t",
+            "nat",
+            "-D",
+            "POSTROUTING",
+            "-s",
+            &rule.source,
+            "-o",
+            &rule.out_interface,
         ];
 
         let snat_addr_str;
@@ -661,10 +687,14 @@ table ip {table} {{
         // Remove FORWARD rules
         let _ = Command::new("iptables")
             .args([
-                "-D", "FORWARD",
-                "-s", &rule.source,
-                "-o", &rule.out_interface,
-                "-j", "ACCEPT"
+                "-D",
+                "FORWARD",
+                "-s",
+                &rule.source,
+                "-o",
+                &rule.out_interface,
+                "-j",
+                "ACCEPT",
             ])
             .output();
 
@@ -682,8 +712,12 @@ table ip {table} {{
     fn remove_rule_windows(&self, rule: &NatRule) -> Result<()> {
         let _ = Command::new("netsh")
             .args([
-                "routing", "ip", "nat", "delete", "interface",
-                &rule.out_interface
+                "routing",
+                "ip",
+                "nat",
+                "delete",
+                "interface",
+                &rule.out_interface,
             ])
             .output();
         Ok(())
@@ -764,7 +798,6 @@ table ip {table} {{
     }
 }
 
-
 impl Drop for NatManager {
     fn drop(&mut self) {
         // Best effort cleanup on drop
@@ -828,11 +861,7 @@ mod tests {
 
     #[test]
     fn test_nat_rule_snat() {
-        let rule = NatRule::snat(
-            "10.0.0.0/24",
-            "eth0",
-            "192.168.1.1".parse().unwrap(),
-        );
+        let rule = NatRule::snat("10.0.0.0/24", "eth0", "192.168.1.1".parse().unwrap());
         assert!(rule.use_snat);
         assert!(rule.snat_address.is_some());
     }

@@ -160,8 +160,7 @@ async fn test_bidirectional_vpn_communication() {
     let n = server_tun.recv(&mut buf).await.unwrap();
 
     // Verify the response packet
-    let response_ip_info =
-        hop_protocol::transport::mock::IpPacketInfo::parse(&buf[..n]).unwrap();
+    let response_ip_info = hop_protocol::transport::mock::IpPacketInfo::parse(&buf[..n]).unwrap();
     assert!(response_ip_info.is_tcp());
     let response_tcp = response_ip_info.parse_tcp().unwrap();
     assert!(response_tcp.is_syn());
@@ -271,7 +270,11 @@ async fn test_handshake_over_mock_transport() {
     client_tun.inject_recv_packet(test_packet.clone());
 
     let n = client_tun.recv(&mut buf).await.unwrap();
-    let hop_data = Packet::data(client_session.next_sequence(), client_sid, buf[..n].to_vec());
+    let hop_data = Packet::data(
+        client_session.next_sequence(),
+        client_sid,
+        buf[..n].to_vec(),
+    );
     let encrypted_data = cipher.encrypt(&hop_data, 100).unwrap();
     client_udp
         .send_to(&encrypted_data, server_addr)
@@ -398,7 +401,14 @@ async fn test_payload_analysis() {
     let tcp_data = IpPacketBuilder::ipv4()
         .src_v4(192, 168, 1, 1)
         .dst_v4(93, 184, 216, 34)
-        .with_tcp(54321, 80, 1001, 5001, 0x18, b"GET / HTTP/1.1\r\nHost: example.com\r\n\r\n")
+        .with_tcp(
+            54321,
+            80,
+            1001,
+            5001,
+            0x18,
+            b"GET / HTTP/1.1\r\nHost: example.com\r\n\r\n",
+        )
         .build();
 
     let icmp_packet = IpPacketBuilder::ipv4()

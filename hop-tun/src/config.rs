@@ -202,13 +202,16 @@ impl TunConfigBuilder {
         prefix_len: u8,
         dest: impl Into<Ipv4Addr>,
     ) -> Self {
-        self.config.ipv4 = Some(Ipv4Config::new(address.into(), prefix_len).with_destination(dest.into()));
+        self.config.ipv4 =
+            Some(Ipv4Config::new(address.into(), prefix_len).with_destination(dest.into()));
         self
     }
 
     /// Add an IPv6 address and prefix length
     pub fn ipv6(mut self, address: impl Into<Ipv6Addr>, prefix_len: u8) -> Self {
-        self.config.ipv6.push(Ipv6Config::new(address.into(), prefix_len));
+        self.config
+            .ipv6
+            .push(Ipv6Config::new(address.into(), prefix_len));
         self
     }
 

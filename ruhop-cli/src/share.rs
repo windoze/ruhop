@@ -79,9 +79,9 @@ impl ShareConfig {
 
     /// Decode a ruhop:// URL back to configuration
     pub fn from_url(url: &str) -> Result<Self> {
-        let encoded = url
-            .strip_prefix(RUHOP_URL_SCHEME)
-            .ok_or_else(|| anyhow::anyhow!("Invalid URL: must start with '{}'", RUHOP_URL_SCHEME))?;
+        let encoded = url.strip_prefix(RUHOP_URL_SCHEME).ok_or_else(|| {
+            anyhow::anyhow!("Invalid URL: must start with '{}'", RUHOP_URL_SCHEME)
+        })?;
 
         if encoded.is_empty() {
             bail!("Invalid URL: empty payload");
@@ -91,15 +91,12 @@ impl ShareConfig {
             .decode(encoded)
             .context("Failed to decode base64 payload")?;
 
-        let payload = String::from_utf8(payload_bytes)
-            .context("Invalid UTF-8 in decoded payload")?;
+        let payload =
+            String::from_utf8(payload_bytes).context("Invalid UTF-8 in decoded payload")?;
 
         let lines: Vec<&str> = payload.lines().collect();
         if lines.len() != 5 {
-            bail!(
-                "Invalid payload: expected 5 lines, got {}",
-                lines.len()
-            );
+            bail!("Invalid payload: expected 5 lines, got {}", lines.len());
         }
 
         let key = lines[0].to_string();
@@ -173,11 +170,7 @@ port_range = [{}, {}]
 # auto_reconnect = true
 # reconnect_delay = 5
 "#,
-            self.key,
-            self.obfuscation,
-            server_value,
-            self.port_range[0],
-            self.port_range[1]
+            self.key, self.obfuscation, server_value, self.port_range[0], self.port_range[1]
         )
     }
 }

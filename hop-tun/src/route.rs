@@ -14,8 +14,7 @@ use crate::error::{Error, Result};
 /// Convert an interface name to its index
 #[cfg(unix)]
 fn get_interface_index(name: &str) -> Result<u32> {
-    let c_name = CString::new(name)
-        .map_err(|_| Error::Config("invalid interface name".into()))?;
+    let c_name = CString::new(name).map_err(|_| Error::Config("invalid interface name".into()))?;
 
     // SAFETY: if_nametoindex is safe to call with a valid C string
     let index = unsafe { libc::if_nametoindex(c_name.as_ptr()) };
@@ -138,13 +137,9 @@ impl Route {
     }
 
     /// Create a new IPv4 route
-    pub fn ipv4(
-        dest_addr: Ipv4Addr,
-        prefix_len: u8,
-        gateway: Option<Ipv4Addr>,
-    ) -> Result<Self> {
-        let destination = Ipv4Net::new(dest_addr, prefix_len)
-            .map_err(|e| Error::InvalidPrefix(e.to_string()))?;
+    pub fn ipv4(dest_addr: Ipv4Addr, prefix_len: u8, gateway: Option<Ipv4Addr>) -> Result<Self> {
+        let destination =
+            Ipv4Net::new(dest_addr, prefix_len).map_err(|e| Error::InvalidPrefix(e.to_string()))?;
 
         Ok(Self {
             destination: IpNet::V4(destination),
@@ -155,13 +150,9 @@ impl Route {
     }
 
     /// Create a new IPv6 route
-    pub fn ipv6(
-        dest_addr: Ipv6Addr,
-        prefix_len: u8,
-        gateway: Option<Ipv6Addr>,
-    ) -> Result<Self> {
-        let destination = Ipv6Net::new(dest_addr, prefix_len)
-            .map_err(|e| Error::InvalidPrefix(e.to_string()))?;
+    pub fn ipv6(dest_addr: Ipv6Addr, prefix_len: u8, gateway: Option<Ipv6Addr>) -> Result<Self> {
+        let destination =
+            Ipv6Net::new(dest_addr, prefix_len).map_err(|e| Error::InvalidPrefix(e.to_string()))?;
 
         Ok(Self {
             destination: IpNet::V6(destination),
@@ -301,7 +292,8 @@ impl RouteManager {
     /// ```
     #[cfg(feature = "async-tokio")]
     pub async fn add(&self, route: &Route) -> Result<()> {
-        let mut net_route = net_route::Route::new(route.destination.addr(), route.destination.prefix_len());
+        let mut net_route =
+            net_route::Route::new(route.destination.addr(), route.destination.prefix_len());
 
         if let Some(gw) = route.gateway {
             net_route = net_route.with_gateway(gw);
@@ -329,7 +321,10 @@ impl RouteManager {
                 {
                     if let Err(fallback_err) = self.add_route_windows_fallback(route) {
                         // If fallback also fails, return the original error
-                        return Err(Error::Route(format!("failed to add route: {}", fallback_err)));
+                        return Err(Error::Route(format!(
+                            "failed to add route: {}",
+                            fallback_err
+                        )));
                     } else {
                         log::info!("Added route via Windows route command: {}", route);
                         return Ok(());
@@ -366,7 +361,9 @@ impl RouteManager {
                     let output = Command::new("powershell")
                         .args(["-NoProfile", "-Command", &ps_cmd])
                         .output()
-                        .map_err(|e| Error::Route(format!("failed to execute PowerShell: {}", e)))?;
+                        .map_err(|e| {
+                            Error::Route(format!("failed to execute PowerShell: {}", e))
+                        })?;
 
                     if output.status.success() {
                         return Ok(());
@@ -380,7 +377,10 @@ impl RouteManager {
                     }
 
                     // If PowerShell failed, fall through to try route.exe with on-link gateway
-                    log::debug!("PowerShell New-NetRoute failed: {}, trying route.exe", stderr.trim());
+                    log::debug!(
+                        "PowerShell New-NetRoute failed: {}, trying route.exe",
+                        stderr.trim()
+                    );
                 }
             }
         }
@@ -443,7 +443,8 @@ impl RouteManager {
     /// Remove a route from the routing table
     #[cfg(feature = "async-tokio")]
     pub async fn delete(&self, route: &Route) -> Result<()> {
-        let mut net_route = net_route::Route::new(route.destination.addr(), route.destination.prefix_len());
+        let mut net_route =
+            net_route::Route::new(route.destination.addr(), route.destination.prefix_len());
 
         if let Some(gw) = route.gateway {
             net_route = net_route.with_gateway(gw);
@@ -527,16 +528,14 @@ impl RouteManager {
         for r in routes {
             // Convert net_route::Route to our Route
             let destination = match (r.destination, r.prefix) {
-                (IpAddr::V4(addr), prefix) => {
-                    IpNet::V4(Ipv4Net::new(addr, prefix).unwrap_or_else(|_| {
-                        Ipv4Net::new(Ipv4Addr::UNSPECIFIED, 0).unwrap()
-                    }))
-                }
-                (IpAddr::V6(addr), prefix) => {
-                    IpNet::V6(Ipv6Net::new(addr, prefix).unwrap_or_else(|_| {
-                        Ipv6Net::new(Ipv6Addr::UNSPECIFIED, 0).unwrap()
-                    }))
-                }
+                (IpAddr::V4(addr), prefix) => IpNet::V4(
+                    Ipv4Net::new(addr, prefix)
+                        .unwrap_or_else(|_| Ipv4Net::new(Ipv4Addr::UNSPECIFIED, 0).unwrap()),
+                ),
+                (IpAddr::V6(addr), prefix) => IpNet::V6(
+                    Ipv6Net::new(addr, prefix)
+                        .unwrap_or_else(|_| Ipv6Net::new(Ipv6Addr::UNSPECIFIED, 0).unwrap()),
+                ),
             };
 
             result.push(Route {
@@ -554,7 +553,11 @@ impl RouteManager {
     ///
     /// This adds a default route (0.0.0.0/0 or ::/0) via the specified gateway.
     #[cfg(feature = "async-tokio")]
-    pub async fn set_default_gateway(&self, gateway: IpAddr, interface: Option<&str>) -> Result<()> {
+    pub async fn set_default_gateway(
+        &self,
+        gateway: IpAddr,
+        interface: Option<&str>,
+    ) -> Result<()> {
         let route = match gateway {
             IpAddr::V4(gw) => Route::default_v4(gw),
             IpAddr::V6(gw) => Route::default_v6(gw),
@@ -574,11 +577,7 @@ impl RouteManager {
     /// This is a convenience method that adds the necessary routes
     /// for traffic to flow through the TUN device.
     #[cfg(feature = "async-tokio")]
-    pub async fn setup_tun_routes(
-        &self,
-        interface: &str,
-        networks: &[IpNet],
-    ) -> Result<()> {
+    pub async fn setup_tun_routes(&self, interface: &str, networks: &[IpNet]) -> Result<()> {
         for network in networks {
             let route = Route::interface_route(*network, interface);
             self.add(&route).await?;
@@ -588,11 +587,7 @@ impl RouteManager {
 
     /// Remove routes for a TUN interface
     #[cfg(feature = "async-tokio")]
-    pub async fn cleanup_tun_routes(
-        &self,
-        interface: &str,
-        networks: &[IpNet],
-    ) -> Result<()> {
+    pub async fn cleanup_tun_routes(&self, interface: &str, networks: &[IpNet]) -> Result<()> {
         for network in networks {
             let route = Route::interface_route(*network, interface);
             // Ignore errors during cleanup
@@ -625,7 +620,8 @@ impl VpnRouteBuilder {
 
     /// Add a network to route through the VPN
     pub fn route(mut self, network: IpNet) -> Self {
-        self.routes.push(Route::interface_route(network, &self.interface));
+        self.routes
+            .push(Route::interface_route(network, &self.interface));
         self
     }
 
@@ -662,9 +658,7 @@ impl VpnRouteBuilder {
             applied.push(route);
         }
 
-        Ok(AppliedRoutes {
-            routes: applied,
-        })
+        Ok(AppliedRoutes { routes: applied })
     }
 }
 
@@ -704,7 +698,10 @@ mod tests {
 
         assert!(route.is_ipv4());
         assert!(!route.is_default());
-        assert_eq!(route.gateway, Some(IpAddr::V4(Ipv4Addr::new(192, 168, 1, 1))));
+        assert_eq!(
+            route.gateway,
+            Some(IpAddr::V4(Ipv4Addr::new(192, 168, 1, 1)))
+        );
     }
 
     #[test]

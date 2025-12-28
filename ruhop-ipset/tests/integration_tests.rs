@@ -220,24 +220,23 @@ mod nftset_tests {
         let addr: IpAddr = "10.0.0.1".parse().unwrap();
 
         // Test that IP is not in set
-        let exists =
-            nftset_test("inet", TABLE_NAME, SET_NAME, addr).expect("Failed to test IP");
+        let exists = nftset_test("inet", TABLE_NAME, SET_NAME, addr).expect("Failed to test IP");
         assert!(!exists, "IP should not exist initially");
 
         // Add IP to set
         nftset_add("inet", TABLE_NAME, SET_NAME, addr).expect("Failed to add IP");
 
         // Test that IP is now in set
-        let exists = nftset_test("inet", TABLE_NAME, SET_NAME, addr)
-            .expect("Failed to test IP after add");
+        let exists =
+            nftset_test("inet", TABLE_NAME, SET_NAME, addr).expect("Failed to test IP after add");
         assert!(exists, "IP should exist after add");
 
         // Delete IP from set
         nftset_del("inet", TABLE_NAME, SET_NAME, addr).expect("Failed to delete IP");
 
         // Test that IP is no longer in set
-        let exists = nftset_test("inet", TABLE_NAME, SET_NAME, addr)
-            .expect("Failed to test IP after del");
+        let exists =
+            nftset_test("inet", TABLE_NAME, SET_NAME, addr).expect("Failed to test IP after del");
         assert!(!exists, "IP should not exist after delete");
 
         cleanup_nftset();
@@ -251,8 +250,8 @@ mod nftset_tests {
         let addr: IpAddr = "2001:db8::1".parse().unwrap();
 
         // Test that IP is not in set
-        let exists = nftset_test("inet", TABLE_NAME, SET_NAME_V6, addr)
-            .expect("Failed to test IPv6");
+        let exists =
+            nftset_test("inet", TABLE_NAME, SET_NAME_V6, addr).expect("Failed to test IPv6");
         assert!(!exists, "IPv6 should not exist initially");
 
         // Add IP to set
@@ -287,8 +286,8 @@ mod nftset_tests {
             .expect("Failed to add IP with timeout");
 
         // Test that IP is in set
-        let exists = nftset_test("inet", TABLE_NAME, SET_NAME_TIMEOUT, addr)
-            .expect("Failed to test IP");
+        let exists =
+            nftset_test("inet", TABLE_NAME, SET_NAME_TIMEOUT, addr).expect("Failed to test IP");
         assert!(exists, "IP should exist after add with timeout");
 
         cleanup_nftset();
@@ -311,8 +310,8 @@ mod nftset_tests {
 
         // Test all IPs exist
         for addr in &addrs {
-            let exists = nftset_test("inet", TABLE_NAME, SET_NAME, *addr)
-                .expect("Failed to test IP");
+            let exists =
+                nftset_test("inet", TABLE_NAME, SET_NAME, *addr).expect("Failed to test IP");
             assert!(exists, "IP {} should exist", addr);
         }
 
@@ -323,8 +322,8 @@ mod nftset_tests {
 
         // Test all IPs are gone
         for addr in &addrs {
-            let exists = nftset_test("inet", TABLE_NAME, SET_NAME, *addr)
-                .expect("Failed to test IP");
+            let exists =
+                nftset_test("inet", TABLE_NAME, SET_NAME, *addr).expect("Failed to test IP");
             assert!(!exists, "IP {} should not exist after delete", addr);
         }
 

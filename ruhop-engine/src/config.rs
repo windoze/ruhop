@@ -252,7 +252,6 @@ reconnect_delay = 5
     }
 }
 
-
 /// Common configuration shared between server and client
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CommonConfig {
@@ -335,7 +334,6 @@ impl Default for CommonConfig {
     }
 }
 
-
 /// Server-specific configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ServerConfig {
@@ -409,9 +407,7 @@ impl ServerConfig {
     /// Validate server configuration
     pub fn validate(&self) -> Result<()> {
         if self.port_range[0] > self.port_range[1] {
-            return Err(Error::Config(
-                "port_range start must be <= end".into(),
-            ));
+            return Err(Error::Config("port_range start must be <= end".into()));
         }
 
         // Parse tunnel network to validate it
@@ -718,9 +714,7 @@ impl ClientConfig {
         }
 
         if self.port_range[0] > self.port_range[1] {
-            return Err(Error::Config(
-                "port_range start must be <= end".into(),
-            ));
+            return Err(Error::Config("port_range start must be <= end".into()));
         }
 
         // Validate excluded routes
@@ -779,7 +773,9 @@ impl ClientConfig {
         }
 
         if ips.is_empty() {
-            return Err(Error::Config("no server addresses could be resolved".into()));
+            return Err(Error::Config(
+                "no server addresses could be resolved".into(),
+            ));
         }
 
         Ok(ips)
@@ -933,7 +929,10 @@ tunnel_network = "192.168.100.0/24"
         let server = config.server.unwrap();
 
         // Should derive 192.168.100.1 from network
-        assert_eq!(server.get_tunnel_ip().unwrap(), Ipv4Addr::new(192, 168, 100, 1));
+        assert_eq!(
+            server.get_tunnel_ip().unwrap(),
+            Ipv4Addr::new(192, 168, 100, 1)
+        );
     }
 
     #[test]

@@ -13,15 +13,17 @@ use tokio::time::interval;
 
 use crate::socket::{DualStackSocket, TrackedUdpSocket};
 
-use hop_protocol::{
-    AssignedAddresses, Cipher, IpAddress, Ipv4Pool, Packet, Session, SessionId,
-    SessionState,
-};
 use hop_dns::{DnsClient, DnsProxy};
+use hop_protocol::{
+    AssignedAddresses, Cipher, IpAddress, Ipv4Pool, Packet, Session, SessionId, SessionState,
+};
 use hop_tun::{NatManager, Route, RouteManager, TunConfig, TunDevice};
 
 use crate::config::{ClientConfig, CommonConfig, Config, ServerConfig};
-use crate::control::{BlacklistedEndpoint, ControlServer, ControlState, SharedStats, SharedStatsRef, DEFAULT_SOCKET_PATH};
+use crate::control::{
+    BlacklistedEndpoint, ControlServer, ControlState, SharedStats, SharedStatsRef,
+    DEFAULT_SOCKET_PATH,
+};
 use crate::error::{Error, Result};
 use crate::event::{EventHandler, LogLevel, LoggingEventHandler, VpnEvent, VpnState, VpnStats};
 use crate::script::{run_connect_script, run_disconnect_script, ScriptParams};
@@ -181,7 +183,11 @@ impl VpnEngine {
         }
 
         // Start control socket server if configured
-        let socket_path = self.config.common.control_socket.clone()
+        let socket_path = self
+            .config
+            .common
+            .control_socket
+            .clone()
             .unwrap_or_else(|| DEFAULT_SOCKET_PATH.to_string());
 
         let control_state = self.control_state.clone();
@@ -288,7 +294,11 @@ impl VpnEngine {
         let common_config = &self.config.common;
 
         self.set_state(VpnState::Starting).await;
-        self.log(LogLevel::Info, format!("Starting VPN server on {}", server_config.listen)).await;
+        self.log(
+            LogLevel::Info,
+            format!("Starting VPN server on {}", server_config.listen),
+        )
+        .await;
 
         // Create cipher
         let cipher = create_cipher(common_config);
@@ -306,7 +316,9 @@ impl VpnEngine {
         #[cfg(target_os = "macos")]
         {
             if common_config.tun_device.is_some() {
-                log::info!("tun_device config is ignored on macOS (system auto-assigns utun device names)");
+                log::info!(
+                    "tun_device config is ignored on macOS (system auto-assigns utun device names)"
+                );
             }
         }
         #[cfg(not(target_os = "macos"))]
@@ -322,7 +334,8 @@ impl VpnEngine {
 
         let tun = TunDevice::create(tun_config).await?;
         let tun_name = tun.name().to_string();
-        self.log(LogLevel::Info, format!("Created TUN device: {}", tun_name)).await;
+        self.log(LogLevel::Info, format!("Created TUN device: {}", tun_name))
+            .await;
 
         // Bind UDP sockets for all ports in the port range
         // Use TrackedUdpSocket for proper NAT traversal on multi-homed servers
@@ -330,9 +343,9 @@ impl VpnEngine {
         let mut sockets = Vec::new();
         for port in server_config.port_range[0]..=server_config.port_range[1] {
             let addr = SocketAddr::new(listen_ip, port);
-            let socket = TrackedUdpSocket::bind(addr)
-                .await
-                .map_err(|e| Error::Connection(format!("failed to bind UDP socket on {}: {}", addr, e)))?;
+            let socket = TrackedUdpSocket::bind(addr).await.map_err(|e| {
+                Error::Connection(format!("failed to bind UDP socket on {}: {}", addr, e))
+            })?;
             sockets.push(Arc::new(socket));
         }
         self.log(
@@ -346,7 +359,8 @@ impl VpnEngine {
 
         // Setup routes
         let route_manager = RouteManager::new().await?;
-        self.setup_server_routes(&route_manager, server_config, &tun_name).await?;
+        self.setup_server_routes(&route_manager, server_config, &tun_name)
+            .await?;
 
         // Setup NAT if enabled
         let nat_manager = if server_config.enable_nat {
@@ -356,7 +370,9 @@ impl VpnEngine {
         };
 
         // Start DNS proxy if configured
-        let dns_servers_for_handshake = self.setup_dns_proxy(server_config, tunnel_ip, shutdown_tx.clone()).await?;
+        let dns_servers_for_handshake = self
+            .setup_dns_proxy(server_config, tunnel_ip, shutdown_tx.clone())
+            .await?;
 
         self.set_state(VpnState::Listening).await;
 
@@ -389,12 +405,14 @@ impl VpnEngine {
             .await;
 
         // Cleanup routes
-        self.cleanup_server_routes(&route_manager, server_config, &tun_name).await;
+        self.cleanup_server_routes(&route_manager, server_config, &tun_name)
+            .await;
 
         // Cleanup NAT (NatManager handles cleanup in Drop, but explicit cleanup is cleaner)
         if let Some(mut nat) = nat_manager {
             if let Err(e) = nat.cleanup() {
-                self.log(LogLevel::Warning, format!("NAT cleanup error: {}", e)).await;
+                self.log(LogLevel::Warning, format!("NAT cleanup error: {}", e))
+                    .await;
             }
         }
 
@@ -408,12 +426,10 @@ impl VpnEngine {
         tun_name: &str,
     ) -> Result<()> {
         let tunnel_net = server_config.tunnel_net()?;
-        let route = Route::interface_route(
-            ipnet::IpNet::V4(tunnel_net),
-            tun_name,
-        );
+        let route = Route::interface_route(ipnet::IpNet::V4(tunnel_net), tun_name);
         route_manager.add(&route).await?;
-        self.log(LogLevel::Info, format!("Added route: {}", route)).await;
+        self.log(LogLevel::Info, format!("Added route: {}", route))
+            .await;
         Ok(())
     }
 
@@ -443,22 +459,31 @@ impl VpnEngine {
 
             self.log(
                 LogLevel::Info,
-                format!("Setting up NAT using {:?} backend, outbound interface: {}", nat_manager.backend(), out_iface),
+                format!(
+                    "Setting up NAT using {:?} backend, outbound interface: {}",
+                    nat_manager.backend(),
+                    out_iface
+                ),
             )
             .await;
 
             // Enable IP forwarding
-            nat_manager.enable_ip_forwarding()
+            nat_manager
+                .enable_ip_forwarding()
                 .map_err(|e| Error::Config(format!("Failed to enable IP forwarding: {}", e)))?;
 
             // Add masquerade rule for tunnel network
             let rule = hop_tun::nat::NatRule::masquerade(&server_config.tunnel_network, &out_iface);
-            nat_manager.add_rule(&rule)
+            nat_manager
+                .add_rule(&rule)
                 .map_err(|e| Error::Config(format!("Failed to add NAT rule: {}", e)))?;
 
             self.log(
                 LogLevel::Info,
-                format!("NAT enabled: {} -> {} (masquerade)", server_config.tunnel_network, out_iface),
+                format!(
+                    "NAT enabled: {} -> {} (masquerade)",
+                    server_config.tunnel_network, out_iface
+                ),
             )
             .await;
 
@@ -467,7 +492,11 @@ impl VpnEngine {
 
         #[cfg(not(target_os = "linux"))]
         {
-            self.log(LogLevel::Info, "NAT enabled (ensure firewall rules are configured)").await;
+            self.log(
+                LogLevel::Info,
+                "NAT enabled (ensure firewall rules are configured)",
+            )
+            .await;
             Ok(None)
         }
     }
@@ -494,7 +523,9 @@ impl VpnEngine {
             }
         }
 
-        Err(Error::Config("Could not determine default interface".into()))
+        Err(Error::Config(
+            "Could not determine default interface".into(),
+        ))
     }
 
     /// Setup DNS proxy if configured and return DNS servers to push to clients
@@ -513,8 +544,12 @@ impl VpnEngine {
         let upstreams = if server_config.dns_servers.is_empty() {
             // Default upstream servers
             vec![
-                hop_dns::DnsServerSpec::Udp { addr: "8.8.8.8:53".parse().unwrap() },
-                hop_dns::DnsServerSpec::Udp { addr: "1.1.1.1:53".parse().unwrap() },
+                hop_dns::DnsServerSpec::Udp {
+                    addr: "8.8.8.8:53".parse().unwrap(),
+                },
+                hop_dns::DnsServerSpec::Udp {
+                    addr: "1.1.1.1:53".parse().unwrap(),
+                },
             ]
         } else {
             server_config.parse_dns_servers()?
@@ -640,7 +675,10 @@ impl VpnEngine {
 
                         self.log(
                             LogLevel::Info,
-                            format!("IP set manager initialized for set '{}' with command queue", ipset_name),
+                            format!(
+                                "IP set manager initialized for set '{}' with command queue",
+                                ipset_name
+                            ),
                         )
                         .await;
 
@@ -754,9 +792,14 @@ impl VpnEngine {
                                         Ok(encrypted) => {
                                             // Use the socket that last received from this client
                                             // and send from the same local address for NAT traversal
-                                            let socket = &sockets_write[client.last_recv_socket_idx];
+                                            let socket =
+                                                &sockets_write[client.last_recv_socket_idx];
                                             let _ = socket
-                                                .send_to_from(&encrypted, client.peer_addr, client.last_recv_local_addr)
+                                                .send_to_from(
+                                                    &encrypted,
+                                                    client.peer_addr,
+                                                    client.last_recv_local_addr,
+                                                )
                                                 .await;
 
                                             // Update stats (lock-free)
@@ -911,11 +954,8 @@ impl VpnEngine {
                                 if sessions.contains_key(&sid) {
                                     // Echo probe response with same probe_id and timestamp
                                     let probe_id = packet.header.seq;
-                                    let timestamp = packet
-                                        .parse_probe_timestamp()
-                                        .unwrap_or(0);
-                                    let response =
-                                        Packet::probe_response(probe_id, sid, timestamp);
+                                    let timestamp = packet.parse_probe_timestamp().unwrap_or(0);
+                                    let response = Packet::probe_response(probe_id, sid, timestamp);
                                     if let Ok(encrypted) = cipher_decrypt.encrypt(&response, 0) {
                                         // Reply via same socket for NAT traversal
                                         if let Err(e) = socket_read
@@ -1025,7 +1065,9 @@ impl VpnEngine {
                     format!("Max reconnection attempts ({}) reached", max_attempts),
                 )
                 .await;
-                return Err(Error::Connection("max reconnection attempts reached".to_string()));
+                return Err(Error::Connection(
+                    "max reconnection attempts reached".to_string(),
+                ));
             }
 
             let result = self
@@ -1086,17 +1128,26 @@ impl VpnEngine {
     ) -> Result<()> {
         if attempt > 1 {
             self.set_state(VpnState::Reconnecting).await;
-            self.log(LogLevel::Info, format!("Reconnection attempt {}", attempt)).await;
+            self.log(LogLevel::Info, format!("Reconnection attempt {}", attempt))
+                .await;
         } else {
             self.set_state(VpnState::Connecting).await;
         }
-        self.log(LogLevel::Info, format!("Connecting to server: {:?}", client_config.server)).await;
+        self.log(
+            LogLevel::Info,
+            format!("Connecting to server: {:?}", client_config.server),
+        )
+        .await;
 
         // Configure Windows Firewall to allow VPN traffic
         #[cfg(windows)]
         {
             if let Err(e) = hop_tun::windows::configure_vpn_firewall("Ruhop", true) {
-                self.log(LogLevel::Warning, format!("Failed to configure firewall: {}", e)).await;
+                self.log(
+                    LogLevel::Warning,
+                    format!("Failed to configure firewall: {}", e),
+                )
+                .await;
             }
         }
 
@@ -1132,7 +1183,8 @@ impl VpnEngine {
                 .map_err(|e| Error::Connection(format!("failed to bind UDP socket: {}", e)))?,
         );
         if socket.has_ipv4() && socket.has_ipv6() {
-            self.log(LogLevel::Info, "Created dual-stack socket (IPv4 + IPv6)").await;
+            self.log(LogLevel::Info, "Created dual-stack socket (IPv4 + IPv6)")
+                .await;
         } else if socket.has_ipv6() {
             self.log(LogLevel::Info, "Created IPv6 socket").await;
         } else {
@@ -1200,11 +1252,21 @@ impl VpnEngine {
         .map_err(|_| Error::Timeout("handshake timeout".to_string()))??;
 
         let (tunnel_ip, mask, dns_servers) = handshake_result;
-        self.log(LogLevel::Info, format!("Assigned IP: {}/{}", tunnel_ip, mask)).await;
+        self.log(
+            LogLevel::Info,
+            format!("Assigned IP: {}/{}", tunnel_ip, mask),
+        )
+        .await;
         if !dns_servers.is_empty() {
             self.log(
                 LogLevel::Info,
-                format!("DNS servers from server: {:?}", dns_servers.iter().map(|ip| ip.to_string()).collect::<Vec<_>>()),
+                format!(
+                    "DNS servers from server: {:?}",
+                    dns_servers
+                        .iter()
+                        .map(|ip| ip.to_string())
+                        .collect::<Vec<_>>()
+                ),
             )
             .await;
         }
@@ -1222,12 +1284,20 @@ impl VpnEngine {
                 // Server TUN IP is network + 1
                 Ipv4Addr::from((network + 1).to_be_bytes())
             }
-            _ => return Err(Error::Config("IPv6 not yet supported for client".to_string())),
+            _ => {
+                return Err(Error::Config(
+                    "IPv6 not yet supported for client".to_string(),
+                ))
+            }
         };
 
         let tunnel_ipv4 = match tunnel_ip {
             IpAddress::V4(ip) => ip,
-            _ => return Err(Error::Config("IPv6 not yet supported for client".to_string())),
+            _ => {
+                return Err(Error::Config(
+                    "IPv6 not yet supported for client".to_string(),
+                ))
+            }
         };
 
         // On macOS, don't set a name - let the system assign a utun device
@@ -1236,7 +1306,9 @@ impl VpnEngine {
         #[cfg(target_os = "macos")]
         {
             if common_config.tun_device.is_some() {
-                log::info!("tun_device config is ignored on macOS (system auto-assigns utun device names)");
+                log::info!(
+                    "tun_device config is ignored on macOS (system auto-assigns utun device names)"
+                );
             }
         }
         #[cfg(not(target_os = "macos"))]
@@ -1251,13 +1323,25 @@ impl VpnEngine {
 
         let tun = TunDevice::create(tun_config).await?;
         let tun_name = tun.name().to_string();
-        self.log(LogLevel::Info, format!("Created TUN device: {}", tun_name)).await;
+        self.log(LogLevel::Info, format!("Created TUN device: {}", tun_name))
+            .await;
 
         // Setup routes
         let route_manager = RouteManager::new().await?;
         let server_ips = client_config.resolve_server_ips()?;
         let original_gateway = route_manager.get_default_gateway().await?;
-        let added_routes = self.setup_client_routes(&route_manager, client_config, &tun_name, tunnel_ipv4, mask, server_tunnel_ip, &server_ips, original_gateway, &dns_servers)
+        let added_routes = self
+            .setup_client_routes(
+                &route_manager,
+                client_config,
+                &tun_name,
+                tunnel_ipv4,
+                mask,
+                server_tunnel_ip,
+                &server_ips,
+                original_gateway,
+                &dns_servers,
+            )
             .await?;
 
         self.set_state(VpnState::Connected).await;
@@ -1285,15 +1369,14 @@ impl VpnEngine {
                 IpAddress::V6(v6) => IpAddr::V6(*v6),
             })
             .collect();
-        let script_params = ScriptParams::with_dns(
-            IpAddr::V4(tunnel_ipv4),
-            mask,
-            &tun_name,
-            &dns_ips,
-        );
+        let script_params =
+            ScriptParams::with_dns(IpAddr::V4(tunnel_ipv4), mask, &tun_name, &dns_ips);
 
-        if let Err(e) = run_connect_script(client_config.on_connect.as_deref(), &script_params).await {
-            self.log(LogLevel::Error, format!("on_connect script failed: {}", e)).await;
+        if let Err(e) =
+            run_connect_script(client_config.on_connect.as_deref(), &script_params).await
+        {
+            self.log(LogLevel::Error, format!("on_connect script failed: {}", e))
+                .await;
             // Continue anyway - script failure shouldn't prevent VPN from working
         }
 
@@ -1332,7 +1415,13 @@ impl VpnEngine {
         run_disconnect_script(client_config.on_disconnect.as_deref(), &script_params).await;
 
         // Cleanup routes
-        self.cleanup_client_routes(&route_manager, &added_routes, client_config.mss_fix, &tun_name).await;
+        self.cleanup_client_routes(
+            &route_manager,
+            &added_routes,
+            client_config.mss_fix,
+            &tun_name,
+        )
+        .await;
 
         result
     }
@@ -1370,20 +1459,43 @@ impl VpnEngine {
                 tun_name,
             );
             if let Err(e) = route_manager.add(&peer_route).await {
-                self.log(LogLevel::Warning, format!("Failed to add peer route: {}", e)).await;
+                self.log(
+                    LogLevel::Warning,
+                    format!("Failed to add peer route: {}", e),
+                )
+                .await;
             } else {
-                self.log(LogLevel::Info, format!("Added route: {}/32 dev {}", tun_gateway, tun_name)).await;
+                self.log(
+                    LogLevel::Info,
+                    format!("Added route: {}/32 dev {}", tun_gateway, tun_name),
+                )
+                .await;
                 added_routes.push(peer_route);
             }
 
             // Route 2: Subnet route via the gateway
-            let subnet_route = Route::ipv4(tunnel_net.addr(), tunnel_net.prefix_len(), Some(tun_gateway))
-                .map_err(|e| Error::Config(format!("Invalid tunnel route: {}", e)))?
-                .with_interface(tun_name);
+            let subnet_route = Route::ipv4(
+                tunnel_net.addr(),
+                tunnel_net.prefix_len(),
+                Some(tun_gateway),
+            )
+            .map_err(|e| Error::Config(format!("Invalid tunnel route: {}", e)))?
+            .with_interface(tun_name);
             if let Err(e) = route_manager.add(&subnet_route).await {
-                self.log(LogLevel::Warning, format!("Failed to add tunnel subnet route: {}", e)).await;
+                self.log(
+                    LogLevel::Warning,
+                    format!("Failed to add tunnel subnet route: {}", e),
+                )
+                .await;
             } else {
-                self.log(LogLevel::Info, format!("Added route: {} via {} dev {}", tunnel_net, tun_gateway, tun_name)).await;
+                self.log(
+                    LogLevel::Info,
+                    format!(
+                        "Added route: {} via {} dev {}",
+                        tunnel_net, tun_gateway, tun_name
+                    ),
+                )
+                .await;
                 added_routes.push(subnet_route);
             }
         }
@@ -1393,9 +1505,17 @@ impl VpnEngine {
             // On other platforms, use a simple interface route
             let tunnel_route = Route::interface_route(ipnet::IpNet::V4(tunnel_net), tun_name);
             if let Err(e) = route_manager.add(&tunnel_route).await {
-                self.log(LogLevel::Warning, format!("Failed to add tunnel subnet route: {}", e)).await;
+                self.log(
+                    LogLevel::Warning,
+                    format!("Failed to add tunnel subnet route: {}", e),
+                )
+                .await;
             } else {
-                self.log(LogLevel::Info, format!("Added route: {} dev {}", tunnel_net, tun_name)).await;
+                self.log(
+                    LogLevel::Info,
+                    format!("Added route: {} dev {}", tunnel_net, tun_name),
+                )
+                .await;
                 added_routes.push(tunnel_route);
             }
         }
@@ -1413,9 +1533,17 @@ impl VpnEngine {
                             if let IpAddr::V4(gw) = orig_gw {
                                 if let Ok(route) = Route::ipv4(*ip, 32, Some(gw)) {
                                     if let Err(e) = route_manager.add(&route).await {
-                                        self.log(LogLevel::Warning, format!("Failed to add server route for {}: {}", ip, e)).await;
+                                        self.log(
+                                            LogLevel::Warning,
+                                            format!("Failed to add server route for {}: {}", ip, e),
+                                        )
+                                        .await;
                                     } else {
-                                        self.log(LogLevel::Info, format!("Added route: {}/32 via {}", ip, gw)).await;
+                                        self.log(
+                                            LogLevel::Info,
+                                            format!("Added route: {}/32 via {}", ip, gw),
+                                        )
+                                        .await;
                                         added_routes.push(route);
                                     }
                                 }
@@ -1425,9 +1553,17 @@ impl VpnEngine {
                             if let IpAddr::V6(gw) = orig_gw {
                                 if let Ok(route) = Route::ipv6(*ip, 128, Some(gw)) {
                                     if let Err(e) = route_manager.add(&route).await {
-                                        self.log(LogLevel::Warning, format!("Failed to add server route for {}: {}", ip, e)).await;
+                                        self.log(
+                                            LogLevel::Warning,
+                                            format!("Failed to add server route for {}: {}", ip, e),
+                                        )
+                                        .await;
                                     } else {
-                                        self.log(LogLevel::Info, format!("Added route: {}/128 via {}", ip, gw)).await;
+                                        self.log(
+                                            LogLevel::Info,
+                                            format!("Added route: {}/128 via {}", ip, gw),
+                                        )
+                                        .await;
                                         added_routes.push(route);
                                     }
                                 }
@@ -1447,11 +1583,25 @@ impl VpnEngine {
                 .with_interface(tun_name);
 
             route_manager.add(&route1).await?;
-            self.log(LogLevel::Info, format!("Added route: 0.0.0.0/1 via {} dev {}", tun_gateway, tun_name)).await;
+            self.log(
+                LogLevel::Info,
+                format!(
+                    "Added route: 0.0.0.0/1 via {} dev {}",
+                    tun_gateway, tun_name
+                ),
+            )
+            .await;
             added_routes.push(route1);
 
             route_manager.add(&route2).await?;
-            self.log(LogLevel::Info, format!("Added route: 128.0.0.0/1 via {} dev {}", tun_gateway, tun_name)).await;
+            self.log(
+                LogLevel::Info,
+                format!(
+                    "Added route: 128.0.0.0/1 via {} dev {}",
+                    tun_gateway, tun_name
+                ),
+            )
+            .await;
             added_routes.push(route2);
         } else if !dns_servers.is_empty() {
             // When route_all_traffic is disabled, route DNS server traffic through VPN tunnel
@@ -1462,15 +1612,30 @@ impl VpnEngine {
                         if let Ok(route) = Route::ipv4(*ip, 32, Some(tun_gateway)) {
                             let route = route.with_interface(tun_name);
                             if let Err(e) = route_manager.add(&route).await {
-                                self.log(LogLevel::Warning, format!("Failed to add DNS route for {}: {}", ip, e)).await;
+                                self.log(
+                                    LogLevel::Warning,
+                                    format!("Failed to add DNS route for {}: {}", ip, e),
+                                )
+                                .await;
                             } else {
-                                self.log(LogLevel::Info, format!("Added DNS route: {}/32 via {} dev {}", ip, tun_gateway, tun_name)).await;
+                                self.log(
+                                    LogLevel::Info,
+                                    format!(
+                                        "Added DNS route: {}/32 via {} dev {}",
+                                        ip, tun_gateway, tun_name
+                                    ),
+                                )
+                                .await;
                                 added_routes.push(route);
                             }
                         }
                     }
                     IpAddress::V6(ip) => {
-                        self.log(LogLevel::Debug, format!("Skipping IPv6 DNS route for {}", ip)).await;
+                        self.log(
+                            LogLevel::Debug,
+                            format!("Skipping IPv6 DNS route for {}", ip),
+                        )
+                        .await;
                     }
                 }
             }
@@ -1510,8 +1675,8 @@ impl VpnEngine {
 
     #[cfg(target_os = "linux")]
     async fn setup_mss_clamping_nftables(&self, tun_name: &str) {
-        use std::process::Command;
         use std::io::Write;
+        use std::process::Command;
 
         const NFT_MSS_TABLE: &str = "ruhop_mss";
 
@@ -1584,12 +1749,19 @@ table ip {table} {{
         // Add MSS clamping rule for outbound TCP SYN packets
         let result = Command::new("iptables")
             .args([
-                "-t", "mangle",
-                "-A", "FORWARD",
-                "-o", tun_name,
-                "-p", "tcp",
-                "--tcp-flags", "SYN,RST", "SYN",
-                "-j", "TCPMSS",
+                "-t",
+                "mangle",
+                "-A",
+                "FORWARD",
+                "-o",
+                tun_name,
+                "-p",
+                "tcp",
+                "--tcp-flags",
+                "SYN,RST",
+                "SYN",
+                "-j",
+                "TCPMSS",
                 "--clamp-mss-to-pmtu",
             ])
             .output();
@@ -1652,12 +1824,19 @@ table ip {table} {{
         // Remove MSS clamping rule
         let _ = Command::new("iptables")
             .args([
-                "-t", "mangle",
-                "-D", "FORWARD",
-                "-o", tun_name,
-                "-p", "tcp",
-                "--tcp-flags", "SYN,RST", "SYN",
-                "-j", "TCPMSS",
+                "-t",
+                "mangle",
+                "-D",
+                "FORWARD",
+                "-o",
+                tun_name,
+                "-p",
+                "tcp",
+                "--tcp-flags",
+                "SYN,RST",
+                "SYN",
+                "-j",
+                "TCPMSS",
                 "--clamp-mss-to-pmtu",
             ])
             .output();
@@ -1674,9 +1853,14 @@ table ip {table} {{
         // Delete all routes that were successfully added
         for route in routes {
             if let Err(e) = route_manager.delete(route).await {
-                self.log(LogLevel::Debug, format!("Failed to delete route {}: {}", route, e)).await;
+                self.log(
+                    LogLevel::Debug,
+                    format!("Failed to delete route {}: {}", route, e),
+                )
+                .await;
             } else {
-                self.log(LogLevel::Debug, format!("Deleted route: {}", route)).await;
+                self.log(LogLevel::Debug, format!("Deleted route: {}", route))
+                    .await;
             }
         }
 
@@ -1709,11 +1893,7 @@ table ip {table} {{
         let sid = session.id.value();
 
         // Get probe config (if enabled)
-        let probe_config = self
-            .config
-            .client
-            .as_ref()
-            .and_then(|c| c.probe.as_ref());
+        let probe_config = self.config.client.as_ref().and_then(|c| c.probe.as_ref());
 
         // Sequence number counter
         let seq = Arc::new(std::sync::atomic::AtomicU32::new(0));
@@ -1757,7 +1937,11 @@ table ip {table} {{
                         if is_blacklisted {
                             // Add to blacklist if not already present
                             let addr_str = addr.to_string();
-                            if !state.blacklisted_endpoints.iter().any(|e| e.addr == addr_str) {
+                            if !state
+                                .blacklisted_endpoints
+                                .iter()
+                                .any(|e| e.addr == addr_str)
+                            {
                                 state.blacklisted_endpoints.push(BlacklistedEndpoint {
                                     addr: addr_str,
                                     loss_rate,
@@ -1826,7 +2010,8 @@ table ip {table} {{
                                         .unwrap_or(server_addrs_tun[0])
                                 };
 
-                                if let Err(e) = socket_write.send_to(&encrypted, target_addr).await {
+                                if let Err(e) = socket_write.send_to(&encrypted, target_addr).await
+                                {
                                     log::error!("UDP send error: {}", e);
                                     break;
                                 }
@@ -1892,7 +2077,8 @@ table ip {table} {{
                                 let now_ms = SystemTime::now()
                                     .duration_since(UNIX_EPOCH)
                                     .unwrap_or_default()
-                                    .as_millis() as u64;
+                                    .as_millis()
+                                    as u64;
                                 let sent_ms = packet.parse_probe_timestamp().unwrap_or(now_ms);
                                 let rtt = Duration::from_millis(now_ms.saturating_sub(sent_ms));
 
@@ -2109,7 +2295,9 @@ fn extract_dst_ipv4(packet: &[u8]) -> Option<Ipv4Addr> {
         return None;
     }
 
-    Some(Ipv4Addr::new(packet[16], packet[17], packet[18], packet[19]))
+    Some(Ipv4Addr::new(
+        packet[16], packet[17], packet[18], packet[19],
+    ))
 }
 
 /// Handle knock packet (multi-socket version without socket param)
@@ -2216,7 +2404,10 @@ async fn handle_server_handshake(
         // Session doesn't exist - might have been a knock we missed
         // Check max clients
         if sessions_lock.len() >= server_config.max_clients {
-            log::warn!("Max clients reached, rejecting handshake from {}", peer_addr);
+            log::warn!(
+                "Max clients reached, rejecting handshake from {}",
+                peer_addr
+            );
             return;
         }
 
@@ -2259,10 +2450,7 @@ async fn handle_server_handshake(
     }
 
     // Send handshake response with assigned IP and DNS servers (v4 protocol)
-    let addresses = AssignedAddresses::single(
-        client.client_addr.ip,
-        client.client_addr.mask,
-    );
+    let addresses = AssignedAddresses::single(client.client_addr.ip, client.client_addr.mask);
     let response = Packet::handshake_response_v4(sid, addresses, dns_servers.to_vec());
 
     match cipher.encrypt(&response, 0) {

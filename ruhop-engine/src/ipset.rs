@@ -66,10 +66,15 @@ impl IpsetBackend {
                     log::info!("Using nftables backend for IP sets (auto-detected)");
                     Ok(IpsetBackend::Nftables)
                 } else if Self::is_ipset_available() {
-                    log::info!("Using ipset backend for IP sets (auto-detected, nft not available)");
+                    log::info!(
+                        "Using ipset backend for IP sets (auto-detected, nft not available)"
+                    );
                     Ok(IpsetBackend::Ipset)
                 } else {
-                    Err("no IP set backend available: neither 'nft' nor 'ipset' command found".into())
+                    Err(
+                        "no IP set backend available: neither 'nft' nor 'ipset' command found"
+                            .into(),
+                    )
                 }
             }
         }
@@ -209,11 +214,7 @@ impl IpsetManager {
             ));
         }
 
-        log::info!(
-            "Created nftables set {}.{}",
-            self.table_name,
-            self.set_name
-        );
+        log::info!("Created nftables set {}.{}", self.table_name, self.set_name);
         Ok(())
     }
 
@@ -436,10 +437,7 @@ impl IpsetCommandQueue {
                 queued += 1;
             } else {
                 // Channel full, log and skip remaining
-                log::warn!(
-                    "IP set queue full, dropping {} IPs",
-                    ips.len() - queued
-                );
+                log::warn!("IP set queue full, dropping {} IPs", ips.len() - queued);
                 break;
             }
         }

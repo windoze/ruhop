@@ -12,8 +12,8 @@ use serde::{Deserialize, Serialize};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::sync::RwLock;
 
-use crate::event::VpnState;
 use crate::error::{Error, Result};
+use crate::event::VpnState;
 
 /// Default socket path for the control socket
 #[cfg(unix)]
@@ -290,7 +290,9 @@ impl ControlServer {
                     let control_state = self.control_state.clone();
                     let shared_stats = self.shared_stats.clone();
                     tokio::spawn(async move {
-                        if let Err(e) = Self::handle_connection_unix(stream, control_state, shared_stats).await {
+                        if let Err(e) =
+                            Self::handle_connection_unix(stream, control_state, shared_stats).await
+                        {
                             log::debug!("Control connection error: {}", e);
                         }
                     });
@@ -313,7 +315,9 @@ impl ControlServer {
         let mut line = String::new();
 
         // Read request (single line JSON)
-        reader.read_line(&mut line).await
+        reader
+            .read_line(&mut line)
+            .await
             .map_err(|e| Error::Config(format!("Failed to read request: {}", e)))?;
 
         let request: ControlRequest = serde_json::from_str(line.trim())
@@ -324,9 +328,13 @@ impl ControlServer {
         let response_json = serde_json::to_string(&response)
             .map_err(|e| Error::Config(format!("Failed to serialize response: {}", e)))?;
 
-        writer.write_all(response_json.as_bytes()).await
+        writer
+            .write_all(response_json.as_bytes())
+            .await
             .map_err(|e| Error::Config(format!("Failed to write response: {}", e)))?;
-        writer.write_all(b"\n").await
+        writer
+            .write_all(b"\n")
+            .await
             .map_err(|e| Error::Config(format!("Failed to write newline: {}", e)))?;
 
         Ok(())
@@ -371,7 +379,10 @@ impl ControlServer {
 
             // Handle the connection in a separate task
             tokio::spawn(async move {
-                if let Err(e) = Self::handle_connection_windows(connected_pipe, control_state, shared_stats).await {
+                if let Err(e) =
+                    Self::handle_connection_windows(connected_pipe, control_state, shared_stats)
+                        .await
+                {
                     log::debug!("Control connection error: {}", e);
                 }
             });
@@ -389,7 +400,9 @@ impl ControlServer {
         let mut line = String::new();
 
         // Read request (single line JSON)
-        reader.read_line(&mut line).await
+        reader
+            .read_line(&mut line)
+            .await
             .map_err(|e| Error::Config(format!("Failed to read request: {}", e)))?;
 
         if line.is_empty() {
@@ -404,11 +417,17 @@ impl ControlServer {
         let response_json = serde_json::to_string(&response)
             .map_err(|e| Error::Config(format!("Failed to serialize response: {}", e)))?;
 
-        writer.write_all(response_json.as_bytes()).await
+        writer
+            .write_all(response_json.as_bytes())
+            .await
             .map_err(|e| Error::Config(format!("Failed to write response: {}", e)))?;
-        writer.write_all(b"\n").await
+        writer
+            .write_all(b"\n")
+            .await
             .map_err(|e| Error::Config(format!("Failed to write newline: {}", e)))?;
-        writer.flush().await
+        writer
+            .flush()
+            .await
             .map_err(|e| Error::Config(format!("Failed to flush: {}", e)))?;
 
         Ok(())
@@ -482,11 +501,12 @@ impl ControlClient {
     pub async fn request(&self, request: ControlRequest) -> Result<ControlResponse> {
         use tokio::net::UnixStream;
 
-        let stream = UnixStream::connect(&self.socket_path).await
-            .map_err(|e| Error::Config(format!(
+        let stream = UnixStream::connect(&self.socket_path).await.map_err(|e| {
+            Error::Config(format!(
                 "Failed to connect to control socket at {:?}: {}. Is the VPN running?",
                 self.socket_path, e
-            )))?;
+            ))
+        })?;
 
         let (reader, mut writer) = stream.into_split();
         let mut reader = BufReader::new(reader);
@@ -494,14 +514,19 @@ impl ControlClient {
         // Send request
         let request_json = serde_json::to_string(&request)
             .map_err(|e| Error::Config(format!("Failed to serialize request: {}", e)))?;
-        writer.write_all(request_json.as_bytes()).await
+        writer
+            .write_all(request_json.as_bytes())
+            .await
             .map_err(|e| Error::Config(format!("Failed to send request: {}", e)))?;
-        writer.write_all(b"\n").await
+        writer
+            .write_all(b"\n")
+            .await
             .map_err(|e| Error::Config(format!("Failed to send newline: {}", e)))?;
 
         // Read response
         let mut line = String::new();
-        tokio::time::timeout(Duration::from_secs(5), reader.read_line(&mut line)).await
+        tokio::time::timeout(Duration::from_secs(5), reader.read_line(&mut line))
+            .await
             .map_err(|_| Error::Config("Timeout waiting for response".into()))?
             .map_err(|e| Error::Config(format!("Failed to read response: {}", e)))?;
 
@@ -545,16 +570,23 @@ impl ControlClient {
         // Send request
         let request_json = serde_json::to_string(&request)
             .map_err(|e| Error::Config(format!("Failed to serialize request: {}", e)))?;
-        writer.write_all(request_json.as_bytes()).await
+        writer
+            .write_all(request_json.as_bytes())
+            .await
             .map_err(|e| Error::Config(format!("Failed to send request: {}", e)))?;
-        writer.write_all(b"\n").await
+        writer
+            .write_all(b"\n")
+            .await
             .map_err(|e| Error::Config(format!("Failed to send newline: {}", e)))?;
-        writer.flush().await
+        writer
+            .flush()
+            .await
             .map_err(|e| Error::Config(format!("Failed to flush: {}", e)))?;
 
         // Read response
         let mut line = String::new();
-        tokio::time::timeout(Duration::from_secs(5), reader.read_line(&mut line)).await
+        tokio::time::timeout(Duration::from_secs(5), reader.read_line(&mut line))
+            .await
             .map_err(|_| Error::Config("Timeout waiting for response".into()))?
             .map_err(|e| Error::Config(format!("Failed to read response: {}", e)))?;
 

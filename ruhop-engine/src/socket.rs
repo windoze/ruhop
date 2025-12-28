@@ -17,7 +17,6 @@ use std::os::fd::AsRawFd;
 use socket2::{Domain, Protocol, SockAddr, Socket, Type};
 use tokio::net::UdpSocket;
 
-
 /// Result of receiving a UDP packet with local address information.
 #[derive(Debug)]
 pub struct RecvResult {
@@ -190,7 +189,12 @@ impl TrackedUdpSocket {
             // Use try_io to perform the blocking recvmsg in a non-blocking context
             #[allow(unreachable_patterns)] // EAGAIN == EWOULDBLOCK on some platforms
             let result = self.socket.try_io(tokio::io::Interest::READABLE, || {
-                match recvmsg::<SockaddrStorage>(fd, &mut iov, Some(&mut cmsg_buf), MsgFlags::empty()) {
+                match recvmsg::<SockaddrStorage>(
+                    fd,
+                    &mut iov,
+                    Some(&mut cmsg_buf),
+                    MsgFlags::empty(),
+                ) {
                     Ok(msg) => Ok(msg),
                     Err(nix::errno::Errno::EAGAIN) | Err(nix::errno::Errno::EWOULDBLOCK) => {
                         Err(io::Error::from(io::ErrorKind::WouldBlock))
@@ -207,7 +211,16 @@ impl TrackedUdpSocket {
                         .and_then(|sa: SockaddrStorage| {
                             if let Some(sin) = sa.as_sockaddr_in() {
                                 Some(SocketAddr::V4(SocketAddrV4::new(sin.ip(), sin.port())))
-                            } else { sa.as_sockaddr_in6().map(|sin6| SocketAddr::V6(SocketAddrV6::new(sin6.ip(), sin6.port(), sin6.flowinfo(), sin6.scope_id()))) }
+                            } else {
+                                sa.as_sockaddr_in6().map(|sin6| {
+                                    SocketAddr::V6(SocketAddrV6::new(
+                                        sin6.ip(),
+                                        sin6.port(),
+                                        sin6.flowinfo(),
+                                        sin6.scope_id(),
+                                    ))
+                                })
+                            }
                         })
                         .ok_or_else(|| io::Error::other("no peer address"))?;
 
@@ -216,7 +229,9 @@ impl TrackedUdpSocket {
                     for cmsg in msg.cmsgs()? {
                         match cmsg {
                             ControlMessageOwned::Ipv4PacketInfo(pktinfo) => {
-                                local_ip = IpAddr::V4(Ipv4Addr::from(u32::from_be(pktinfo.ipi_addr.s_addr)));
+                                local_ip = IpAddr::V4(Ipv4Addr::from(u32::from_be(
+                                    pktinfo.ipi_addr.s_addr,
+                                )));
                             }
                             ControlMessageOwned::Ipv6PacketInfo(pktinfo) => {
                                 local_ip = IpAddr::V6(Ipv6Addr::from(pktinfo.ipi6_addr.s6_addr));
@@ -265,7 +280,12 @@ impl TrackedUdpSocket {
             // Use try_io to perform the blocking recvmsg in a non-blocking context
             #[allow(unreachable_patterns)] // EAGAIN == EWOULDBLOCK on some platforms
             let result = self.socket.try_io(tokio::io::Interest::READABLE, || {
-                match recvmsg::<SockaddrStorage>(fd, &mut iov, Some(&mut cmsg_buf), MsgFlags::empty()) {
+                match recvmsg::<SockaddrStorage>(
+                    fd,
+                    &mut iov,
+                    Some(&mut cmsg_buf),
+                    MsgFlags::empty(),
+                ) {
                     Ok(msg) => Ok(msg),
                     Err(nix::errno::Errno::EAGAIN) | Err(nix::errno::Errno::EWOULDBLOCK) => {
                         Err(io::Error::from(io::ErrorKind::WouldBlock))
@@ -282,7 +302,16 @@ impl TrackedUdpSocket {
                         .and_then(|sa: SockaddrStorage| {
                             if let Some(sin) = sa.as_sockaddr_in() {
                                 Some(SocketAddr::V4(SocketAddrV4::new(sin.ip(), sin.port())))
-                            } else { sa.as_sockaddr_in6().map(|sin6| SocketAddr::V6(SocketAddrV6::new(sin6.ip(), sin6.port(), sin6.flowinfo(), sin6.scope_id()))) }
+                            } else {
+                                sa.as_sockaddr_in6().map(|sin6| {
+                                    SocketAddr::V6(SocketAddrV6::new(
+                                        sin6.ip(),
+                                        sin6.port(),
+                                        sin6.flowinfo(),
+                                        sin6.scope_id(),
+                                    ))
+                                })
+                            }
                         })
                         .ok_or_else(|| io::Error::other("no peer address"))?;
 
@@ -379,15 +408,17 @@ impl TrackedUdpSocket {
                     let cmsg = [ControlMessage::Ipv4PacketInfo(&pktinfo)];
 
                     #[allow(unreachable_patterns)]
-                    let result = self.socket.try_io(tokio::io::Interest::WRITABLE, || {
-                        match sendmsg(fd, &iov, &cmsg, MsgFlags::empty(), Some(&dst)) {
-                            Ok(n) => Ok(n),
-                            Err(nix::errno::Errno::EAGAIN) | Err(nix::errno::Errno::EWOULDBLOCK) => {
-                                Err(io::Error::from(io::ErrorKind::WouldBlock))
+                    let result =
+                        self.socket.try_io(tokio::io::Interest::WRITABLE, || {
+                            match sendmsg(fd, &iov, &cmsg, MsgFlags::empty(), Some(&dst)) {
+                                Ok(n) => Ok(n),
+                                Err(nix::errno::Errno::EAGAIN)
+                                | Err(nix::errno::Errno::EWOULDBLOCK) => {
+                                    Err(io::Error::from(io::ErrorKind::WouldBlock))
+                                }
+                                Err(e) => Err(io::Error::other(e)),
                             }
-                            Err(e) => Err(io::Error::other(e)),
-                        }
-                    });
+                        });
 
                     match result {
                         Ok(n) => return Ok(n),
@@ -397,7 +428,12 @@ impl TrackedUdpSocket {
                 }
             }
             (SocketAddr::V6(dst_v6), IpAddr::V6(local_ip)) => {
-                let dst = SockaddrIn6::from(SocketAddrV6::new(*dst_v6.ip(), dst_v6.port(), dst_v6.flowinfo(), dst_v6.scope_id()));
+                let dst = SockaddrIn6::from(SocketAddrV6::new(
+                    *dst_v6.ip(),
+                    dst_v6.port(),
+                    dst_v6.flowinfo(),
+                    dst_v6.scope_id(),
+                ));
 
                 let pktinfo = libc::in6_pktinfo {
                     ipi6_addr: libc::in6_addr {
@@ -413,15 +449,17 @@ impl TrackedUdpSocket {
                     let cmsg = [ControlMessage::Ipv6PacketInfo(&pktinfo)];
 
                     #[allow(unreachable_patterns)]
-                    let result = self.socket.try_io(tokio::io::Interest::WRITABLE, || {
-                        match sendmsg(fd, &iov, &cmsg, MsgFlags::empty(), Some(&dst)) {
-                            Ok(n) => Ok(n),
-                            Err(nix::errno::Errno::EAGAIN) | Err(nix::errno::Errno::EWOULDBLOCK) => {
-                                Err(io::Error::from(io::ErrorKind::WouldBlock))
+                    let result =
+                        self.socket.try_io(tokio::io::Interest::WRITABLE, || {
+                            match sendmsg(fd, &iov, &cmsg, MsgFlags::empty(), Some(&dst)) {
+                                Ok(n) => Ok(n),
+                                Err(nix::errno::Errno::EAGAIN)
+                                | Err(nix::errno::Errno::EWOULDBLOCK) => {
+                                    Err(io::Error::from(io::ErrorKind::WouldBlock))
+                                }
+                                Err(e) => Err(io::Error::other(e)),
                             }
-                            Err(e) => Err(io::Error::other(e)),
-                        }
-                    });
+                        });
 
                     match result {
                         Ok(n) => return Ok(n),
@@ -430,7 +468,9 @@ impl TrackedUdpSocket {
                     }
                 }
             }
-            _ => Err(io::Error::other("address family mismatch between target and local address")),
+            _ => Err(io::Error::other(
+                "address family mismatch between target and local address",
+            )),
         }
     }
 
@@ -519,7 +559,10 @@ impl DualStackSocket {
             return Err(io::Error::other("no server addresses provided"));
         }
 
-        Ok(Self { socket_v4, socket_v6 })
+        Ok(Self {
+            socket_v4,
+            socket_v6,
+        })
     }
 
     /// Send data to a target address, automatically selecting the appropriate socket.

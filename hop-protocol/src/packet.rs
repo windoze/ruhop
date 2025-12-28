@@ -321,7 +321,10 @@ impl Packet {
 
     /// Create a handshake error packet
     pub fn handshake_error(sid: u32, message: &str) -> Self {
-        Self::new(PacketHeader::handshake_error(sid), message.as_bytes().to_vec())
+        Self::new(
+            PacketHeader::handshake_error(sid),
+            message.as_bytes().to_vec(),
+        )
     }
 
     /// Create a finish request packet
@@ -492,9 +495,7 @@ impl Packet {
     /// Each addr: [ip_type: 1] [ip: 4 or 16] [mask: 1]
     pub fn parse_handshake_response_v3(&self) -> Result<(u8, crate::AssignedAddresses)> {
         if self.payload.len() < 2 {
-            return Err(Error::Handshake(
-                "handshake response too short".to_string(),
-            ));
+            return Err(Error::Handshake("handshake response too short".to_string()));
         }
 
         let version = self.payload[0];
@@ -512,9 +513,7 @@ impl Packet {
     /// For backwards compatibility, if DNS section is missing, returns empty dns_servers
     pub fn parse_handshake_response_v4(&self) -> Result<(u8, crate::HandshakeResponse)> {
         if self.payload.len() < 2 {
-            return Err(Error::Handshake(
-                "handshake response too short".to_string(),
-            ));
+            return Err(Error::Handshake("handshake response too short".to_string()));
         }
 
         let version = self.payload[0];
@@ -683,7 +682,10 @@ mod tests {
         let (version, parsed_addrs) = resp.parse_handshake_response_v3().unwrap();
         assert_eq!(version, crate::HOP_PROTO_VERSION);
         assert_eq!(parsed_addrs.len(), 3);
-        assert_eq!(parsed_addrs.primary().ip, IpAddress::from_ipv4_bytes([10, 0, 0, 1]));
+        assert_eq!(
+            parsed_addrs.primary().ip,
+            IpAddress::from_ipv4_bytes([10, 0, 0, 1])
+        );
 
         // v2 should return only primary address
         let (_, primary_ip, primary_mask) = resp.parse_handshake_response_v2().unwrap();

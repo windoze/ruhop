@@ -542,7 +542,10 @@ mod tests {
         let addrs = AssignedAddresses::single(IpAddress::from_ipv4_bytes([10, 0, 0, 1]), 24);
         assert_eq!(addrs.len(), 1);
         assert!(addrs.is_single());
-        assert_eq!(addrs.primary().ip, IpAddress::from_ipv4_bytes([10, 0, 0, 1]));
+        assert_eq!(
+            addrs.primary().ip,
+            IpAddress::from_ipv4_bytes([10, 0, 0, 1])
+        );
         assert_eq!(addrs.primary().mask, 24);
 
         let encoded = addrs.encode();
@@ -572,7 +575,10 @@ mod tests {
         let addrs = AssignedAddresses::multiple(addresses).unwrap();
         assert_eq!(addrs.len(), 3);
         assert!(!addrs.is_single());
-        assert_eq!(addrs.primary().ip, IpAddress::from_ipv4_bytes([10, 0, 0, 1]));
+        assert_eq!(
+            addrs.primary().ip,
+            IpAddress::from_ipv4_bytes([10, 0, 0, 1])
+        );
 
         // Check filtering
         assert_eq!(addrs.ipv4_addresses().count(), 2);

@@ -174,11 +174,7 @@ mod tests {
 
     #[test]
     fn test_script_params_creation() {
-        let params = ScriptParams::new(
-            IpAddr::V4(Ipv4Addr::new(10, 0, 0, 2)),
-            24,
-            "tun0",
-        );
+        let params = ScriptParams::new(IpAddr::V4(Ipv4Addr::new(10, 0, 0, 2)), 24, "tun0");
 
         assert_eq!(params.local_ip, IpAddr::V4(Ipv4Addr::new(10, 0, 0, 2)));
         assert_eq!(params.prefix_len, 24);
@@ -208,11 +204,7 @@ mod tests {
     #[tokio::test]
     #[cfg(unix)]
     async fn test_run_script_success() {
-        let params = ScriptParams::new(
-            IpAddr::V4(Ipv4Addr::new(10, 0, 0, 2)),
-            24,
-            "tun0",
-        );
+        let params = ScriptParams::new(IpAddr::V4(Ipv4Addr::new(10, 0, 0, 2)), 24, "tun0");
 
         // Use 'true' command which always succeeds
         let result = run_script("true", &params).await;
@@ -222,11 +214,7 @@ mod tests {
     #[tokio::test]
     #[cfg(unix)]
     async fn test_run_script_failure() {
-        let params = ScriptParams::new(
-            IpAddr::V4(Ipv4Addr::new(10, 0, 0, 2)),
-            24,
-            "tun0",
-        );
+        let params = ScriptParams::new(IpAddr::V4(Ipv4Addr::new(10, 0, 0, 2)), 24, "tun0");
 
         // Use 'false' command which always fails
         let result = run_script("false", &params).await;
@@ -236,11 +224,7 @@ mod tests {
     #[tokio::test]
     #[cfg(unix)]
     async fn test_run_script_with_echo() {
-        let params = ScriptParams::new(
-            IpAddr::V4(Ipv4Addr::new(10, 0, 0, 2)),
-            24,
-            "utun5",
-        );
+        let params = ScriptParams::new(IpAddr::V4(Ipv4Addr::new(10, 0, 0, 2)), 24, "utun5");
 
         // Echo script that receives all arguments
         let result = run_script("echo", &params).await;

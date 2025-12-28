@@ -58,7 +58,9 @@ impl LocalPool {
     }
 
     fn get(&mut self) -> Vec<u8> {
-        self.buffers.pop().unwrap_or_else(|| Vec::with_capacity(self.default_capacity))
+        self.buffers
+            .pop()
+            .unwrap_or_else(|| Vec::with_capacity(self.default_capacity))
     }
 
     fn get_with_capacity(&mut self, capacity: usize) -> Vec<u8> {
@@ -346,9 +348,7 @@ mod tests {
         pool.clear();
 
         // Create more buffers than max pool size
-        let buffers: Vec<_> = (0..DEFAULT_MAX_POOL_SIZE + 5)
-            .map(|_| pool.get())
-            .collect();
+        let buffers: Vec<_> = (0..DEFAULT_MAX_POOL_SIZE + 5).map(|_| pool.get()).collect();
 
         // Drop all buffers
         drop(buffers);

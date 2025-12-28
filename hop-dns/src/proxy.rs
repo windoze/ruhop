@@ -129,9 +129,12 @@ impl DnsProxy {
 
     /// Run the DNS proxy server
     pub async fn run(mut self) -> Result<()> {
-        let socket = UdpSocket::bind(self.bind_addr)
-            .await
-            .map_err(|e| Error::Dns(format!("failed to bind DNS proxy to {}: {}", self.bind_addr, e)))?;
+        let socket = UdpSocket::bind(self.bind_addr).await.map_err(|e| {
+            Error::Dns(format!(
+                "failed to bind DNS proxy to {}: {}",
+                self.bind_addr, e
+            ))
+        })?;
 
         log::info!("DNS proxy listening on {}", self.bind_addr);
 

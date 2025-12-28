@@ -45,11 +45,16 @@ pub mod ipset;
 pub mod script;
 pub mod socket;
 
-pub use config::{ClientConfig, ClientDnsProxyConfig, Config, ProbeConfig, ServerAddress, ServerConfig};
-pub use control::{ControlClient, ControlRequest, ControlResponse, StatusInfo, ClientInfo, ClientsInfo, SharedStats, SharedStatsRef, DEFAULT_SOCKET_PATH};
+pub use config::{
+    ClientConfig, ClientDnsProxyConfig, Config, ProbeConfig, ServerAddress, ServerConfig,
+};
+pub use control::{
+    ClientInfo, ClientsInfo, ControlClient, ControlRequest, ControlResponse, SharedStats,
+    SharedStatsRef, StatusInfo, DEFAULT_SOCKET_PATH,
+};
 pub use engine::{VpnEngine, VpnRole};
 pub use error::{Error, Result};
 pub use event::{VpnEvent, VpnState, VpnStats};
 
 // Re-export DNS types from hop-dns for convenience
-pub use hop_dns::{CacheStats, DnsCache, DnsClient, DnsProxy, DnsServerSpec, parse_dns_server};
+pub use hop_dns::{parse_dns_server, CacheStats, DnsCache, DnsClient, DnsProxy, DnsServerSpec};

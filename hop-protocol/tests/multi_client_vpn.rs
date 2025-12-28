@@ -71,8 +71,8 @@ impl VpnClient {
         let hop_packet = Packet::data(seq, self.session_id(), ip_packet.to_vec());
 
         // Fragment the packet
-        let fragments = fragment_packet(&hop_packet, MAX_FRAGMENT_SIZE)
-            .expect("Fragmentation should succeed");
+        let fragments =
+            fragment_packet(&hop_packet, MAX_FRAGMENT_SIZE).expect("Fragmentation should succeed");
 
         // Encrypt each fragment
         fragments
@@ -180,7 +180,6 @@ impl VpnServer {
             })
             .collect()
     }
-
 }
 
 /// Application-level request/response processor
@@ -257,15 +256,18 @@ impl NetworkChannel {
     }
 
     fn receive(&mut self, destination: &str) -> Option<Vec<u8>> {
-        self.packets
-            .get_mut(destination)
-            .and_then(|q| if q.is_empty() { None } else { Some(q.remove(0)) })
+        self.packets.get_mut(destination).and_then(|q| {
+            if q.is_empty() {
+                None
+            } else {
+                Some(q.remove(0))
+            }
+        })
     }
 
     fn receive_all(&mut self, destination: &str) -> Vec<Vec<u8>> {
         self.packets.remove(destination).unwrap_or_default()
     }
-
 }
 
 /// Main test: Multi-client VPN with fragmented request/response
@@ -426,8 +428,8 @@ async fn test_multi_client_vpn_with_fragmentation() {
         server.tun.send(ip_packet).await.unwrap();
 
         // Application processes and generates response
-        let response_ip = ApplicationSimulator::process_request(ip_packet)
-            .expect("Should generate response");
+        let response_ip =
+            ApplicationSimulator::process_request(ip_packet).expect("Should generate response");
 
         println!(
             "Application generated response for session 0x{:08X}: {} bytes",
@@ -812,12 +814,12 @@ async fn test_out_of_order_fragment_delivery() {
     }
 
     let reassembled = reassembled.expect("Should reassemble despite out-of-order delivery");
-    assert_eq!(
-        reassembled, request_ip,
-        "Reassembled should match original"
-    );
+    assert_eq!(reassembled, request_ip, "Reassembled should match original");
 
-    println!("✓ Successfully reassembled {} out-of-order fragments", original_count);
+    println!(
+        "✓ Successfully reassembled {} out-of-order fragments",
+        original_count
+    );
 }
 
 /// Test session isolation: packets from different sessions shouldn't interfere

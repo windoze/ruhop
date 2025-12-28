@@ -109,7 +109,9 @@ pub fn get_adapter_info(name: &str) -> Result<AdapterInfo> {
     for line in output_str.lines() {
         let line = line.trim();
         if line.starts_with("IP Address:") {
-            info.ipv4 = line.strip_prefix("IP Address:").map(|s| s.trim().to_string());
+            info.ipv4 = line
+                .strip_prefix("IP Address:")
+                .map(|s| s.trim().to_string());
         }
     }
 
@@ -228,13 +230,19 @@ pub fn configure_vpn_firewall(app_name: &str, enable: bool) -> Result<()> {
         // Remove existing rules first (ignore errors)
         let _ = Command::new("netsh")
             .args([
-                "advfirewall", "firewall", "delete", "rule",
+                "advfirewall",
+                "firewall",
+                "delete",
+                "rule",
                 &format!("name={}", rule_name_in),
             ])
             .output();
         let _ = Command::new("netsh")
             .args([
-                "advfirewall", "firewall", "delete", "rule",
+                "advfirewall",
+                "firewall",
+                "delete",
+                "rule",
                 &format!("name={}", rule_name_out),
             ])
             .output();
@@ -242,7 +250,10 @@ pub fn configure_vpn_firewall(app_name: &str, enable: bool) -> Result<()> {
         // Add inbound rule for UDP
         let output = Command::new("netsh")
             .args([
-                "advfirewall", "firewall", "add", "rule",
+                "advfirewall",
+                "firewall",
+                "add",
+                "rule",
                 &format!("name={}", rule_name_in),
                 "dir=in",
                 "action=allow",
@@ -265,7 +276,10 @@ pub fn configure_vpn_firewall(app_name: &str, enable: bool) -> Result<()> {
         // Add outbound rule for UDP
         let output = Command::new("netsh")
             .args([
-                "advfirewall", "firewall", "add", "rule",
+                "advfirewall",
+                "firewall",
+                "add",
+                "rule",
                 &format!("name={}", rule_name_out),
                 "dir=out",
                 "action=allow",
@@ -288,13 +302,19 @@ pub fn configure_vpn_firewall(app_name: &str, enable: bool) -> Result<()> {
         // Remove the rules
         let _ = Command::new("netsh")
             .args([
-                "advfirewall", "firewall", "delete", "rule",
+                "advfirewall",
+                "firewall",
+                "delete",
+                "rule",
                 &format!("name={}", rule_name_in),
             ])
             .output();
         let _ = Command::new("netsh")
             .args([
-                "advfirewall", "firewall", "delete", "rule",
+                "advfirewall",
+                "firewall",
+                "delete",
+                "rule",
                 &format!("name={}", rule_name_out),
             ])
             .output();

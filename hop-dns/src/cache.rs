@@ -106,9 +106,8 @@ impl DnsCache {
     pub fn new(max_entries: usize) -> Self {
         Self {
             cache: LruCache::new(
-                std::num::NonZeroUsize::new(max_entries).unwrap_or(
-                    std::num::NonZeroUsize::new(DEFAULT_MAX_ENTRIES).unwrap(),
-                ),
+                std::num::NonZeroUsize::new(max_entries)
+                    .unwrap_or(std::num::NonZeroUsize::new(DEFAULT_MAX_ENTRIES).unwrap()),
             ),
             stats: CacheStats::default(),
         }

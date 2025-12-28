@@ -136,10 +136,9 @@ impl Cipher {
         }
 
         // Compress
-        let compressed =
-            snap::raw::Encoder::new()
-                .compress_vec(&plaintext)
-                .map_err(|e| Error::Compression(e.to_string()))?;
+        let compressed = snap::raw::Encoder::new()
+            .compress_vec(&plaintext)
+            .map_err(|e| Error::Compression(e.to_string()))?;
 
         // Generate random IV
         let iv: [u8; CIPHER_BLOCK_SIZE] = rand::thread_rng().gen();
@@ -161,7 +160,8 @@ impl Cipher {
             let mut rng = rand::thread_rng();
             // Random 0 to CIPHER_BLOCK_SIZE-1 bytes of post-encryption padding
             let post_pad_len = rng.gen_range(0..CIPHER_BLOCK_SIZE);
-            let mut result = Vec::with_capacity(post_pad_len + CIPHER_BLOCK_SIZE + ciphertext.len());
+            let mut result =
+                Vec::with_capacity(post_pad_len + CIPHER_BLOCK_SIZE + ciphertext.len());
             // Prepend random post-encryption padding
             result.extend((0..post_pad_len).map(|_| rng.gen::<u8>()));
             result.extend_from_slice(&iv);
@@ -230,10 +230,9 @@ impl Cipher {
     /// Encrypt raw bytes (for testing or custom use)
     pub fn encrypt_raw(&self, plaintext: &[u8]) -> Result<Vec<u8>> {
         // Compress
-        let compressed =
-            snap::raw::Encoder::new()
-                .compress_vec(plaintext)
-                .map_err(|e| Error::Compression(e.to_string()))?;
+        let compressed = snap::raw::Encoder::new()
+            .compress_vec(plaintext)
+            .map_err(|e| Error::Compression(e.to_string()))?;
 
         // Generate random IV
         let iv: [u8; CIPHER_BLOCK_SIZE] = rand::thread_rng().gen();
@@ -294,7 +293,9 @@ impl Cipher {
         let pool = BufferPool::new();
 
         // Get buffer for plaintext encoding
-        let mut plaintext = pool.get_with_capacity(crate::HOP_HDR_LEN + packet.payload.len() + max_noise + self.max_pre_padding);
+        let mut plaintext = pool.get_with_capacity(
+            crate::HOP_HDR_LEN + packet.payload.len() + max_noise + self.max_pre_padding,
+        );
         plaintext.extend_from_slice(&packet.header.encode());
         plaintext.extend_from_slice(&packet.payload);
 
@@ -374,11 +375,18 @@ impl Cipher {
     /// The buffer will be cleared before writing.
     ///
     /// Returns the number of bytes written to the buffer.
-    pub fn encrypt_into(&self, packet: &Packet, max_noise: usize, output: &mut Vec<u8>) -> Result<usize> {
+    pub fn encrypt_into(
+        &self,
+        packet: &Packet,
+        max_noise: usize,
+        output: &mut Vec<u8>,
+    ) -> Result<usize> {
         let pool = BufferPool::new();
 
         // Get buffer for plaintext encoding
-        let mut plaintext = pool.get_with_capacity(crate::HOP_HDR_LEN + packet.payload.len() + max_noise + self.max_pre_padding);
+        let mut plaintext = pool.get_with_capacity(
+            crate::HOP_HDR_LEN + packet.payload.len() + max_noise + self.max_pre_padding,
+        );
         plaintext.extend_from_slice(&packet.header.encode());
         plaintext.extend_from_slice(&packet.payload);
 
@@ -952,7 +960,9 @@ mod tests {
                     // Create unique packet for this thread/iteration
                     let seq = (thread_id * 1000 + i) as u32;
                     let sid = (thread_id as u32) << 16 | (i as u32);
-                    let payload: Vec<u8> = (0..100).map(|j| ((thread_id + i + j) % 256) as u8).collect();
+                    let payload: Vec<u8> = (0..100)
+                        .map(|j| ((thread_id + i + j) % 256) as u8)
+                        .collect();
                     let packet = Packet::data(seq, sid, payload.clone());
 
                     // Encrypt with pooled buffer
@@ -1000,17 +1010,16 @@ mod tests {
                 barrier.wait();
 
                 for i in 0..iterations {
-                    let packet = Packet::data(
-                        i as u32,
-                        thread_id as u32,
-                        vec![thread_id as u8; 200],
-                    );
+                    let packet =
+                        Packet::data(i as u32, thread_id as u32, vec![thread_id as u8; 200]);
 
                     // Encrypt into reusable buffer
                     cipher.encrypt_into(&packet, 0, &mut output_buffer).unwrap();
 
                     // Decrypt into reusable work buffer
-                    let decrypted = cipher.decrypt_into(&output_buffer, &mut work_buffer).unwrap();
+                    let decrypted = cipher
+                        .decrypt_into(&output_buffer, &mut work_buffer)
+                        .unwrap();
 
                     assert_eq!(packet, decrypted);
                 }

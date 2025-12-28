@@ -51,6 +51,6 @@ mod proxy;
 
 pub use cache::{CacheStats, DnsCache};
 pub use client::DnsClient;
-pub use config::{DnsServerSpec, UpstreamStrategy, parse_dns_server};
+pub use config::{parse_dns_server, DnsServerSpec, UpstreamStrategy};
 pub use error::{Error, Result};
 pub use proxy::{DnsProxy, ResolvedIps};

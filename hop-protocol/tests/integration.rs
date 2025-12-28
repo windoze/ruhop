@@ -206,7 +206,10 @@ fn test_full_handshake_flow() {
     // Server receives confirmation
     let packet = server.recv_packet(&mut channel).unwrap();
     assert!(packet.header.flag.is_handshake_ack());
-    server.session.complete_handshake(assigned_ip, mask).unwrap();
+    server
+        .session
+        .complete_handshake(assigned_ip, mask)
+        .unwrap();
 
     // Both peers should now be in Working state
     assert_eq!(client.session.state, SessionState::Working);
@@ -233,9 +236,15 @@ fn test_data_transfer_bidirectional() {
 
     // Simulate already established session
     client.session.start_handshake().unwrap();
-    client.session.complete_handshake([10, 1, 1, 5], 24).unwrap();
+    client
+        .session
+        .complete_handshake([10, 1, 1, 5], 24)
+        .unwrap();
     server.session.start_handshake().unwrap();
-    server.session.complete_handshake([10, 1, 1, 5], 24).unwrap();
+    server
+        .session
+        .complete_handshake([10, 1, 1, 5], 24)
+        .unwrap();
 
     let client_sid = client.session.id.value();
     let server_sid = server.session.id.value();
@@ -296,7 +305,10 @@ fn test_port_hopping_simulation() {
 
     // Setup sessions
     client.session.start_handshake().unwrap();
-    client.session.complete_handshake([10, 1, 1, 5], 24).unwrap();
+    client
+        .session
+        .complete_handshake([10, 1, 1, 5], 24)
+        .unwrap();
 
     let client_sid = client.session.id.value();
 
@@ -396,10 +408,16 @@ fn test_session_termination() {
 
     // Setup established session
     client.session.start_handshake().unwrap();
-    client.session.complete_handshake([10, 1, 1, 5], 24).unwrap();
+    client
+        .session
+        .complete_handshake([10, 1, 1, 5], 24)
+        .unwrap();
     server.session = Session::new_server(client.session.id);
     server.session.start_handshake().unwrap();
-    server.session.complete_handshake([10, 1, 1, 5], 24).unwrap();
+    server
+        .session
+        .complete_handshake([10, 1, 1, 5], 24)
+        .unwrap();
 
     assert_eq!(client.session.state, SessionState::Working);
     assert_eq!(server.session.state, SessionState::Working);
@@ -490,7 +508,10 @@ fn test_out_of_order_fragment_delivery() {
 
     // Fragment it
     let fragments = fragment_packet(&packet, HOP_HDR_LEN + 30).unwrap();
-    assert!(fragments.len() >= 3, "Need multiple fragments for this test");
+    assert!(
+        fragments.len() >= 3,
+        "Need multiple fragments for this test"
+    );
 
     println!("Testing with {} fragments", fragments.len());
 
@@ -533,7 +554,10 @@ fn test_wrong_key_rejection() {
     let result = server_wrong.cipher.decrypt(&data);
 
     // Decryption should fail
-    assert!(result.is_err(), "Should reject packet encrypted with different key");
+    assert!(
+        result.is_err(),
+        "Should reject packet encrypted with different key"
+    );
 }
 
 #[test]
@@ -678,7 +702,10 @@ mod udp_tests {
         let client_msg = b"Request from client".to_vec();
         let packet = Packet::data(1, 0xAAAA, client_msg.clone());
         let encrypted = cipher.encrypt(&packet, 0).unwrap();
-        client_socket.send_to(&encrypted, server_addr).await.unwrap();
+        client_socket
+            .send_to(&encrypted, server_addr)
+            .await
+            .unwrap();
 
         // Server receives
         let mut buf = vec![0u8; 2048];
@@ -810,7 +837,10 @@ mod udp_tests {
         // ========== Port Knock ==========
         let knock = Packet::knock(client_sid);
         let encrypted = client_cipher.encrypt(&knock, 0).unwrap();
-        client_socket.send_to(&encrypted, server_addr).await.unwrap();
+        client_socket
+            .send_to(&encrypted, server_addr)
+            .await
+            .unwrap();
 
         // Server receives knock
         let mut buf = vec![0u8; 2048];
@@ -823,14 +853,16 @@ mod udp_tests {
         assert_eq!(received_sid, client_sid);
 
         // Server creates session for this client
-        let mut server_session =
-            Session::new_server(hop_protocol::SessionId::new(received_sid));
+        let mut server_session = Session::new_server(hop_protocol::SessionId::new(received_sid));
 
         // ========== Handshake Request ==========
         client_session.start_handshake().unwrap();
         let hs_req = Packet::handshake_request(client_sid);
         let encrypted = client_cipher.encrypt(&hs_req, 0).unwrap();
-        client_socket.send_to(&encrypted, server_addr).await.unwrap();
+        client_socket
+            .send_to(&encrypted, server_addr)
+            .await
+            .unwrap();
 
         // Server receives handshake request
         let (len, _) = server_socket.recv_from(&mut buf).await.unwrap();
@@ -862,14 +894,19 @@ mod udp_tests {
         // ========== Handshake Confirm ==========
         let hs_confirm = Packet::handshake_confirm(client_sid);
         let encrypted = client_cipher.encrypt(&hs_confirm, 0).unwrap();
-        client_socket.send_to(&encrypted, server_addr).await.unwrap();
+        client_socket
+            .send_to(&encrypted, server_addr)
+            .await
+            .unwrap();
         client_session.complete_handshake(ip, recv_mask).unwrap();
 
         // Server receives confirmation
         let (len, _) = server_socket.recv_from(&mut buf).await.unwrap();
         let confirm_packet = server_cipher.decrypt(&buf[..len]).unwrap();
         assert!(confirm_packet.header.flag.is_handshake_ack());
-        server_session.complete_handshake(assigned_ip, mask).unwrap();
+        server_session
+            .complete_handshake(assigned_ip, mask)
+            .unwrap();
 
         // Both should be in Working state
         assert_eq!(client_session.state, SessionState::Working);
@@ -905,7 +942,10 @@ mod udp_tests {
         for (seq, msg) in messages.iter().enumerate() {
             let packet = Packet::data(seq as u32, sid, msg.clone());
             let encrypted = cipher.encrypt(&packet, 50).unwrap(); // Add noise
-            client_socket.send_to(&encrypted, server_addr).await.unwrap();
+            client_socket
+                .send_to(&encrypted, server_addr)
+                .await
+                .unwrap();
         }
 
         // Server receives all messages
@@ -966,7 +1006,10 @@ mod udp_tests {
         // Client sends heartbeat response
         let hb_resp = Packet::heartbeat_response(sid);
         let encrypted = cipher.encrypt(&hb_resp, 0).unwrap();
-        client_socket.send_to(&encrypted, server_addr).await.unwrap();
+        client_socket
+            .send_to(&encrypted, server_addr)
+            .await
+            .unwrap();
 
         // Server receives response
         let (len, _) = server_socket.recv_from(&mut buf).await.unwrap();
@@ -992,7 +1035,10 @@ mod udp_tests {
         // Client sends FIN
         let fin_req = Packet::finish_request(sid);
         let encrypted = cipher.encrypt(&fin_req, 0).unwrap();
-        client_socket.send_to(&encrypted, server_addr).await.unwrap();
+        client_socket
+            .send_to(&encrypted, server_addr)
+            .await
+            .unwrap();
 
         // Server receives FIN
         let mut buf = vec![0u8; 2048];
@@ -1031,7 +1077,10 @@ mod udp_tests {
         // Client sends with correct key
         let packet = Packet::data(1, 0x1234, b"secret data".to_vec());
         let encrypted = client_cipher.encrypt(&packet, 0).unwrap();
-        client_socket.send_to(&encrypted, server_addr).await.unwrap();
+        client_socket
+            .send_to(&encrypted, server_addr)
+            .await
+            .unwrap();
 
         // Server with wrong key tries to decrypt
         let mut buf = vec![0u8; 2048];
@@ -1211,7 +1260,10 @@ mod udp_tests {
         let encrypted = cipher.encrypt(&packet, 0).unwrap();
 
         // Send
-        client_socket.send_to(&encrypted, server_addr).await.unwrap();
+        client_socket
+            .send_to(&encrypted, server_addr)
+            .await
+            .unwrap();
 
         // Receive
         let mut buf = vec![0u8; 4096];
@@ -1242,7 +1294,10 @@ mod udp_tests {
             let encrypted = cipher.encrypt(&packet, max_noise).unwrap();
             packet_sizes.push(encrypted.len());
 
-            client_socket.send_to(&encrypted, server_addr).await.unwrap();
+            client_socket
+                .send_to(&encrypted, server_addr)
+                .await
+                .unwrap();
 
             let mut buf = vec![0u8; 2048];
             let (len, _) = server_socket.recv_from(&mut buf).await.unwrap();
@@ -1253,7 +1308,10 @@ mod udp_tests {
         }
 
         // Packet sizes should vary with noise (probabilistically)
-        println!("Packet sizes with different noise levels: {:?}", packet_sizes);
+        println!(
+            "Packet sizes with different noise levels: {:?}",
+            packet_sizes
+        );
     }
 
     #[tokio::test]
@@ -1382,7 +1440,10 @@ mod udp_tests {
         // Knock
         let knock = Packet::knock(client_sid);
         let encrypted = cipher.encrypt(&knock, 0).unwrap();
-        client_socket.send_to(&encrypted, server_addr).await.unwrap();
+        client_socket
+            .send_to(&encrypted, server_addr)
+            .await
+            .unwrap();
 
         // Server receives knock
         let mut buf = vec![0u8; 2048];

@@ -82,9 +82,9 @@ pub mod windows;
 pub use config::{TunConfig, TunConfigBuilder};
 pub use device::TunDevice;
 pub use error::{Error, Result};
-pub use nat::NatManager;
 #[cfg(target_os = "linux")]
 pub use nat::FirewallBackend;
+pub use nat::NatManager;
 pub use route::{Route, RouteManager};
 
 // Re-export BorrowedTunDevice for NetworkExtension integration

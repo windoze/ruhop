@@ -371,7 +371,11 @@ impl PacketCapture {
     pub fn sent_by_protocol(&self, protocol: u8) -> Vec<&CapturedPacket> {
         self.sent
             .iter()
-            .filter(|p| p.ip_info.as_ref().is_some_and(|info| info.protocol == protocol))
+            .filter(|p| {
+                p.ip_info
+                    .as_ref()
+                    .is_some_and(|info| info.protocol == protocol)
+            })
             .collect()
     }
 
@@ -650,10 +654,7 @@ impl UdpTransport for MockUdpSocket {
     }
 
     async fn send_to(&self, buf: &[u8], addr: SocketAddr) -> Result<usize> {
-        self.sent_packets
-            .lock()
-            .unwrap()
-            .push((buf.to_vec(), addr));
+        self.sent_packets.lock().unwrap().push((buf.to_vec(), addr));
 
         // If connected to another socket, inject into its recv queue
         if let Some(ref peer) = *self.connected.lock().unwrap() {
@@ -824,7 +825,7 @@ impl IpPacketBuilder {
         packet.extend_from_slice(&[0x00, 0x00]);
         // Flags + Fragment offset
         packet.extend_from_slice(&[0x40, 0x00]); // Don't fragment
-        // TTL
+                                                 // TTL
         packet.push(self.ttl);
         // Protocol
         packet.push(self.protocol);
@@ -1116,9 +1117,7 @@ mod tests {
             .with_tcp(1234, 80, 100, 0, 0x02, b"data")
             .build();
 
-        let udp_packet = IpPacketBuilder::ipv4()
-            .with_udp(5000, 53, b"query")
-            .build();
+        let udp_packet = IpPacketBuilder::ipv4().with_udp(5000, 53, b"query").build();
 
         capture.sent.push(CapturedPacket {
             data: tcp_packet.clone(),

@@ -67,10 +67,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         _ => "Other",
                     };
 
-                    println!(
-                        "  IPv{} {} {} -> {}",
-                        version, proto_name, src, dst
-                    );
+                    println!("  IPv{} {} {} -> {}", version, proto_name, src, dst);
 
                     // For ICMP echo requests, we could send a reply
                     if protocol == 1 && n >= 28 {

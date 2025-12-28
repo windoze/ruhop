@@ -68,7 +68,10 @@ impl Ipv4Pool {
     pub fn from_cidr(cidr: &str) -> crate::Result<Self> {
         let parts: Vec<&str> = cidr.split('/').collect();
         if parts.len() != 2 {
-            return Err(crate::Error::Pool(format!("invalid CIDR notation: {}", cidr)));
+            return Err(crate::Error::Pool(format!(
+                "invalid CIDR notation: {}",
+                cidr
+            )));
         }
 
         let ip: Ipv4Addr = parts[0]
@@ -236,7 +239,10 @@ impl Ipv6Pool {
     pub fn from_cidr(cidr: &str, max_clients: u64) -> crate::Result<Self> {
         let parts: Vec<&str> = cidr.split('/').collect();
         if parts.len() != 2 {
-            return Err(crate::Error::Pool(format!("invalid CIDR notation: {}", cidr)));
+            return Err(crate::Error::Pool(format!(
+                "invalid CIDR notation: {}",
+                cidr
+            )));
         }
 
         let ip: Ipv6Addr = parts[0]
