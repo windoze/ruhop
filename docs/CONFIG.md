@@ -561,10 +561,20 @@ ipset = "vpn_resolved"
 
 **Default:** Not set (disabled)
 **Platform:** Linux only
+**Format:**
+- Simple name: `"vpn_resolved"` - uses default table "ruhop" for nftables
+- Table/set format: `"custom_table/my_set"` - uses custom table name for nftables
+
 **Behavior:**
-- Tries nftables first (creates set in table "ruhop")
-- Falls back to ipset command (creates hash:ip set)
+- When `use_nftables = true` or auto-detected: creates nftables set in specified table
+- When `use_nftables = false`: uses ipset (creates hash:ip set, table name ignored)
 - Errors are logged but don't stop the DNS proxy
+
+**Examples:**
+```toml
+ipset = "vpn_resolved"           # nftables: table "ruhop", set "vpn_resolved"
+ipset = "mangle/bypass"          # nftables: table "mangle", set "bypass"
+```
 
 **Validation:** Cannot be empty string if set.
 

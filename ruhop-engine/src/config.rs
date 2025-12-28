@@ -246,7 +246,8 @@ reconnect_delay = 5
 # enabled = true
 # port = 53                # Listen port (default: 53)
 # filter_ipv6 = false      # Filter AAAA records (default: false)
-# ipset = "vpn_resolved"   # Linux only: add resolved IPs to ipset
+# ipset = "vpn_resolved"   # Linux only: add resolved IPs to ipset/nftset
+                           # Use "table/set" format for custom nftables table
 "#
         .to_string()
     }
@@ -689,11 +690,15 @@ pub struct ClientDnsProxyConfig {
     /// (Linux only) IP set name to add resolved addresses to
     ///
     /// When configured, resolved IPv4 addresses are added to an IP set.
-    /// The implementation tries `nft` (nftables) first, then falls back to
-    /// the `ipset` command if nftables is not available.
+    /// The backend is controlled by `use_nftables` in `[common]`.
     ///
-    /// For nftables: creates a set in table "ruhop" if it doesn't exist.
-    /// For ipset: creates a hash:ip set if it doesn't exist.
+    /// **Format:**
+    /// - Simple name: `"vpn_resolved"` - uses default table "ruhop" for nftables
+    /// - Table/set format: `"custom_table/my_set"` - uses custom table name for nftables
+    ///
+    /// **Behavior:**
+    /// - For nftables: creates table and set if they don't exist
+    /// - For ipset: creates a hash:ip set if it doesn't exist (table name ignored)
     ///
     /// Errors during IP set operations are logged but do not stop the DNS proxy.
     ///

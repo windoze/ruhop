@@ -210,9 +210,10 @@ enabled = true
 port = 53                           # Listen on tunnel_ip:53
 filter_ipv6 = true                  # Remove AAAA records from responses
 ipset = "vpn_resolved"              # Add resolved IPs to this set
+# ipset = "custom_table/my_set"     # Or use table/set format for nftables
 ```
 
-**IP Set (Linux only):** When `ipset` is configured, resolved IPv4 addresses are added to the specified set. The backend is controlled by `use_nftables` in `[common]`: `true` uses nftables (set in table "ruhop"), `false` uses the ipset command, and unset auto-detects.
+**IP Set (Linux only):** When `ipset` is configured, resolved IPv4 addresses are added to the specified set. The backend is controlled by `use_nftables` in `[common]`: `true` uses nftables, `false` uses the ipset command, and unset auto-detects. For nftables, use `"table/set"` format to specify a custom table (default: "ruhop").
 
 ### Port Hopping
 

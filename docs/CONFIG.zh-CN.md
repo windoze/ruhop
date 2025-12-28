@@ -561,10 +561,20 @@ ipset = "vpn_resolved"
 
 **默认值：** 未设置（禁用）
 **平台：** 仅 Linux
+**格式：**
+- 简单名称：`"vpn_resolved"` - nftables 使用默认表 "ruhop"
+- 表/集合格式：`"custom_table/my_set"` - nftables 使用自定义表名
+
 **行为：**
-- 优先尝试 nftables（在 "ruhop" 表中创建集合）
-- 失败则回退到 ipset 命令（创建 hash:ip 集合）
+- 当 `use_nftables = true` 或自动检测时：在指定表中创建 nftables 集合
+- 当 `use_nftables = false` 时：使用 ipset（创建 hash:ip 集合，忽略表名）
 - 错误会被记录但不会停止 DNS 代理
+
+**示例：**
+```toml
+ipset = "vpn_resolved"           # nftables: 表 "ruhop", 集合 "vpn_resolved"
+ipset = "mangle/bypass"          # nftables: 表 "mangle", 集合 "bypass"
+```
 
 **验证：** 如果设置，不能为空字符串。
 

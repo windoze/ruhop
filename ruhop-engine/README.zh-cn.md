@@ -210,9 +210,10 @@ enabled = true
 port = 53                           # 监听 tunnel_ip:53
 filter_ipv6 = true                  # 从响应中移除 AAAA 记录
 ipset = "vpn_resolved"              # 将解析的 IP 添加到此集合
+# ipset = "custom_table/my_set"     # 或使用 表/集合 格式指定 nftables 表名
 ```
 
-**IP 集合（仅 Linux）：** 配置 `ipset` 后，解析的 IPv4 地址会被添加到指定的集合中。后端由 `[common]` 中的 `use_nftables` 控制：`true` 使用 nftables（在表 "ruhop" 中创建集合），`false` 使用 ipset 命令，不设置则自动检测。
+**IP 集合（仅 Linux）：** 配置 `ipset` 后，解析的 IPv4 地址会被添加到指定的集合中。后端由 `[common]` 中的 `use_nftables` 控制：`true` 使用 nftables，`false` 使用 ipset 命令，不设置则自动检测。对于 nftables，可使用 `"表/集合"` 格式指定自定义表名（默认："ruhop"）。
 
 ### 端口跳跃
 
