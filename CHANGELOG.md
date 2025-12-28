@@ -5,7 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.19.0]
+## [0.20.0]
+
+### Added
+- New `ruhop-ipset` crate for direct IP set manipulation via netlink
+- Windows ARM64 package support
+- Customizable nftables table name for IP sets
+
+### Changed
+- Use direct netlink-based IP set operations instead of shelling out to `ipset`/`nft` commands
+
+### Fixed
+- Ignore invalid server addresses in configuration instead of failing
+- Fix `cargo check` workspace on non-Linux platforms
+
+## [0.19.0] - 2025-12-28
 
 ### Added
 - IPv6 transport support for UDP sockets
@@ -175,6 +189,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - TOML-based configuration
 - Lifecycle scripts (`on_connect`, `on_disconnect`)
 
+[0.20.0]: https://github.com/windoze/ruhop/compare/v0.19.0...v0.20.0
 [0.19.0]: https://github.com/windoze/ruhop/compare/v0.18.3...v0.19.0
 [0.18.3]: https://github.com/windoze/ruhop/compare/v0.18.2...v0.18.3
 [0.18.2]: https://github.com/windoze/ruhop/compare/v0.18.1...v0.18.2
