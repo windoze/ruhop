@@ -242,8 +242,8 @@ jobs:
           name: openwrt-aarch64
           path: artifacts/${{ env.BINARY_NAME }}-openwrt-aarch64.ipk
 
-  build-windows:
-    name: Build Windows
+  build-windows-amd64:
+    name: Build Windows x86_64
     runs-on: windows-latest
     steps:
       - name: Checkout
@@ -288,9 +288,57 @@ jobs:
           name: windows-amd64-setup
           path: artifacts/${{ env.BINARY_NAME }}-windows-amd64-setup.exe
 
+  build-windows-arm64:
+    name: Build Windows ARM64
+    runs-on: windows-11-arm
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-pc-windows-msvc
+
+      - name: Install cargo-packager
+        run: cargo install cargo-packager --locked
+
+      - name: Download wintun.dll
+        shell: pwsh
+        run: |
+          Invoke-WebRequest -Uri "https://www.wintun.net/builds/wintun-0.14.1.zip" -OutFile "wintun.zip"
+          Expand-Archive -Path "wintun.zip" -DestinationPath "wintun"
+          Copy-Item "wintun\wintun\bin\arm64\wintun.dll" "packaging\windows\wintun.dll"
+
+      - name: Build
+        run: cargo build --release --target aarch64-pc-windows-msvc -p ruhop-cli
+
+      - name: Package NSIS installer
+        run: cargo packager --release -p ruhop-cli --formats nsis --target aarch64-pc-windows-msvc
+
+      - name: Prepare artifacts
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path artifacts
+          Copy-Item "target\aarch64-pc-windows-msvc\release\${{ env.BINARY_NAME }}.exe" "${{ env.BINARY_NAME }}.exe"
+          Compress-Archive -Path "${{ env.BINARY_NAME }}.exe" -DestinationPath "artifacts\${{ env.BINARY_NAME }}-windows-arm64.zip"
+          Copy-Item "target\aarch64-pc-windows-msvc\release\*-setup.exe" "artifacts\${{ env.BINARY_NAME }}-windows-arm64-setup.exe"
+
+      - name: Upload standalone binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-arm64
+          path: artifacts/${{ env.BINARY_NAME }}-windows-arm64.zip
+
+      - name: Upload NSIS installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-arm64-setup
+          path: artifacts/${{ env.BINARY_NAME }}-windows-arm64-setup.exe
+
   release:
     name: Create Release
-    needs: [build-linux-amd64, build-linux-arm64, package-linux-amd64-deb, package-linux-arm64-deb, package-linux-amd64-openwrt, package-linux-arm64-openwrt, build-macos, build-windows]
+    needs: [build-linux-amd64, build-linux-arm64, package-linux-amd64-deb, package-linux-arm64-deb, package-linux-amd64-openwrt, package-linux-arm64-openwrt, build-macos, build-windows-amd64, build-windows-arm64]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -327,6 +375,8 @@ jobs:
           mv artifacts/macos-universal/${{ env.BINARY_NAME }}-macos-universal.tar.gz release/
           mv artifacts/windows-amd64/${{ env.BINARY_NAME }}-windows-amd64.zip release/
           mv artifacts/windows-amd64-setup/${{ env.BINARY_NAME }}-windows-amd64-setup.exe release/
+          mv artifacts/windows-arm64/${{ env.BINARY_NAME }}-windows-arm64.zip release/
+          mv artifacts/windows-arm64-setup/${{ env.BINARY_NAME }}-windows-arm64-setup.exe release/
           # Generate checksums
           cd release
           sha256sum * > SHA256SUMS.txt
@@ -349,4 +399,6 @@ jobs:
             release/${{ env.BINARY_NAME }}-macos-universal.tar.gz
             release/${{ env.BINARY_NAME }}-windows-amd64.zip
             release/${{ env.BINARY_NAME }}-windows-amd64-setup.exe
+            release/${{ env.BINARY_NAME }}-windows-arm64.zip
+            release/${{ env.BINARY_NAME }}-windows-arm64-setup.exe
             release/SHA256SUMS.txt
