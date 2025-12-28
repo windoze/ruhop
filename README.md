@@ -154,6 +154,7 @@ ruhop/
 
 ### Linux
 
+- **Linux kernel 5.10 or later** (required for ipset netlink support)
 - Root privileges or the following capabilities:
   - `CAP_NET_ADMIN` - Required for TUN device and route management
   - `CAP_NET_RAW` - Required for TUN device creation

@@ -154,6 +154,7 @@ ruhop/
 
 ### Linux
 
+- **Linux 内核版本 5.10 或更高**（ipset netlink 支持所需）
 - Root 权限或以下能力：
   - `CAP_NET_ADMIN` - TUN 设备和路由管理所需
   - `CAP_NET_RAW` - TUN 设备创建所需

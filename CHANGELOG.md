@@ -10,6 +10,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 - Fix ipset backend compatibility with older kernels (use revision 4 instead of 6 for Linux 5.10 and later)
 
+### Changed
+- **Minimum supported Linux kernel version is now 5.10** (required for ipset netlink support)
+
 ## [0.20.0]
 
 ### Added
