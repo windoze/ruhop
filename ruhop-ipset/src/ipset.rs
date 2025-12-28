@@ -179,10 +179,12 @@ impl IpSetType {
     }
 
     fn revision(&self) -> u8 {
-        // Use latest revision that supports all features including timeout
+        // Use revision 4 which is widely supported across kernel versions
+        // (5.10+ kernels support revision 4 for hash:ip and hash:net)
+        // Higher revisions (5, 6) require newer kernels
         match self {
-            IpSetType::HashIp => 6,
-            IpSetType::HashNet => 7,
+            IpSetType::HashIp => 4,
+            IpSetType::HashNet => 4,
         }
     }
 }
