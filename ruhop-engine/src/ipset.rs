@@ -74,12 +74,27 @@ impl IpsetBackend {
 pub struct IpsetManager {
     /// Backend being used
     backend: IpsetBackend,
-    /// Set name
+    /// Set name (without table prefix)
     set_name: String,
     /// nftables table name (only used for nftables backend)
     table_name: String,
     /// nftables family (only used for nftables backend)
     nft_family: String,
+}
+
+/// Default nftables table name
+const DEFAULT_NFT_TABLE: &str = "ruhop";
+
+/// Parse set name in `table/set` format
+///
+/// Returns (table_name, set_name) tuple.
+/// If no `/` is present, uses default table name "ruhop".
+fn parse_set_name(set_name: &str) -> (String, String) {
+    if let Some((table, set)) = set_name.split_once('/') {
+        (table.to_string(), set.to_string())
+    } else {
+        (DEFAULT_NFT_TABLE.to_string(), set_name.to_string())
+    }
 }
 
 impl IpsetManager {
@@ -88,7 +103,9 @@ impl IpsetManager {
     /// Selects the backend based on explicit configuration and creates the set if needed.
     ///
     /// # Arguments
-    /// * `set_name` - Name of the IP set to use
+    /// * `set_name` - Name of the IP set to use. For nftables backend, supports `table/set`
+    ///   format to specify a custom table name. If no `/` is present, uses default table
+    ///   "ruhop". The table name is ignored for ipset backend.
     /// * `use_nftables` - Backend selection:
     ///   - `Some(true)`: Use nftables
     ///   - `Some(false)`: Use ipset
@@ -99,21 +116,36 @@ impl IpsetManager {
     pub fn new(set_name: &str, use_nftables: Option<bool>) -> Result<Self, String> {
         let backend = IpsetBackend::select(use_nftables)?;
 
+        // Parse table/set format (table name only used for nftables)
+        let (table_name, parsed_set_name) = parse_set_name(set_name);
+
         let manager = Self {
             backend,
-            set_name: set_name.to_string(),
-            table_name: "ruhop".to_string(),
+            set_name: parsed_set_name.clone(),
+            table_name,
             nft_family: "ip".to_string(),
         };
 
         // Ensure the set exists
         manager.ensure_set_exists()?;
 
-        log::info!(
-            "IP set manager initialized with {} backend, set: {}",
-            backend.name(),
-            set_name
-        );
+        match backend {
+            IpsetBackend::Nftables => {
+                log::info!(
+                    "IP set manager initialized with {} backend, table: {}, set: {}",
+                    backend.name(),
+                    manager.table_name,
+                    manager.set_name
+                );
+            }
+            IpsetBackend::Ipset => {
+                log::info!(
+                    "IP set manager initialized with {} backend, set: {}",
+                    backend.name(),
+                    manager.set_name
+                );
+            }
+        }
 
         Ok(manager)
     }
@@ -506,5 +538,27 @@ mod tests {
         assert_eq!(config.min_interval, Duration::from_millis(100));
         assert_eq!(config.max_batch_size, 1000);
         assert_eq!(config.channel_capacity, 10000);
+    }
+
+    #[test]
+    fn test_parse_set_name_with_table() {
+        let (table, set) = parse_set_name("mytable/myset");
+        assert_eq!(table, "mytable");
+        assert_eq!(set, "myset");
+    }
+
+    #[test]
+    fn test_parse_set_name_without_table() {
+        let (table, set) = parse_set_name("myset");
+        assert_eq!(table, DEFAULT_NFT_TABLE);
+        assert_eq!(set, "myset");
+    }
+
+    #[test]
+    fn test_parse_set_name_with_multiple_slashes() {
+        // Only splits on first slash
+        let (table, set) = parse_set_name("table/set/extra");
+        assert_eq!(table, "table");
+        assert_eq!(set, "set/extra");
     }
 }
