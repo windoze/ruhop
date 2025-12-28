@@ -12,7 +12,6 @@ description = "VPN engine interface for Ruhop - reusable across CLI and GUI appl
 hop-protocol = { path = "../hop-protocol" }
 hop-tun = { path = "../hop-tun" }
 hop-dns = { path = "../hop-dns" }
-ruhop-ipset = { path = "../ruhop-ipset" }
 
 # Async runtime
 tokio = { version = "1", features = ["net", "io-util", "sync", "macros", "rt-multi-thread", "time", "signal", "process"] }
@@ -45,6 +44,9 @@ rand = "0.9"
 
 [target.'cfg(unix)'.dependencies]
 nix = { version = "0.30", features = ["net", "uio"] }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+ruhop-ipset = { path = "../ruhop-ipset" }
 
 [dev-dependencies]
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "time"] }
