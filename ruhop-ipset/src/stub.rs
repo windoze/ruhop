@@ -5,18 +5,20 @@
 use crate::{IpEntry, IpSetError, Result};
 
 /// ipset type for hash:ip sets (stub for non-Linux)
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Default)]
 pub enum IpSetType {
     /// hash:ip - stores IP addresses
+    #[default]
     HashIp,
     /// hash:net - stores network addresses (CIDR)
     HashNet,
 }
 
 /// Address family for ipset (stub for non-Linux)
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Default)]
 pub enum IpSetFamily {
     /// IPv4 addresses
+    #[default]
     Inet,
     /// IPv6 addresses
     Inet6,
@@ -32,32 +34,18 @@ pub struct IpSetCreateOptions {
     pub timeout: Option<u32>,
 }
 
-impl Default for IpSetType {
-    fn default() -> Self {
-        IpSetType::HashIp
-    }
-}
 
-impl Default for IpSetFamily {
-    fn default() -> Self {
-        IpSetFamily::Inet
-    }
-}
 
 /// Address type for nftables sets (stub for non-Linux)
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Default)]
 pub enum NftSetType {
     /// IPv4 addresses
+    #[default]
     Ipv4Addr,
     /// IPv6 addresses
     Ipv6Addr,
 }
 
-impl Default for NftSetType {
-    fn default() -> Self {
-        NftSetType::Ipv4Addr
-    }
-}
 
 /// Options for creating an nftables set (stub for non-Linux)
 #[derive(Clone, Debug, Default)]
