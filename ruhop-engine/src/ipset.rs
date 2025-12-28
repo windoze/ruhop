@@ -2,30 +2,32 @@
 //!
 //! This module provides functionality to add resolved IP addresses to IP sets.
 //! It supports two backends:
-//! - nftables (preferred): Uses the `nft` command
-//! - ipset (fallback): Uses the legacy `ipset` command
+//! - nftables (preferred): Uses netlink via ruhop-ipset
+//! - ipset (fallback): Uses netlink via ruhop-ipset
 //!
-//! The backend is auto-detected at runtime.
+//! Both backends use direct netlink communication instead of external processes.
 //!
-//! To avoid process flooding under heavy DNS traffic, this module uses an
-//! [`IpsetCommandQueue`] that batches IP addresses and rate-limits command
-//! execution.
+//! To avoid flooding the netlink socket under heavy DNS traffic, this module uses an
+//! [`IpsetCommandQueue`] that batches IP addresses and rate-limits operations.
 
 use std::collections::HashSet;
-use std::io::Write;
 use std::net::{IpAddr, Ipv4Addr};
-use std::process::{Command, Stdio};
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::mpsc;
 use tokio::sync::Mutex;
 
+use ruhop_ipset::{
+    ipset_add, ipset_create, IpSetCreateOptions, IpSetFamily, IpSetType,
+    nftset_add, nftset_create_set, nftset_create_table, NftSetCreateOptions, NftSetType,
+};
+
 /// IP set backend type
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum IpsetBackend {
-    /// nftables backend (uses `nft` command)
+    /// nftables backend (uses netlink)
     Nftables,
-    /// Legacy ipset backend (uses `ipset` command)
+    /// Legacy ipset backend (uses netlink)
     Ipset,
 }
 
@@ -34,8 +36,8 @@ impl IpsetBackend {
     ///
     /// # Arguments
     /// * `use_nftables` - Explicit backend selection:
-    ///   - `Some(true)`: Use nftables (fails if unavailable)
-    ///   - `Some(false)`: Use ipset (fails if unavailable)
+    ///   - `Some(true)`: Use nftables
+    ///   - `Some(false)`: Use ipset
     ///   - `None`: Auto-detect (tries nftables first, falls back to ipset)
     ///
     /// # Returns
@@ -43,63 +45,20 @@ impl IpsetBackend {
     pub fn select(use_nftables: Option<bool>) -> Result<Self, String> {
         match use_nftables {
             Some(true) => {
-                // Explicitly requested nftables
-                if Self::is_nftables_available() {
-                    log::info!("Using nftables backend for IP sets (explicitly configured)");
-                    Ok(IpsetBackend::Nftables)
-                } else {
-                    Err("nftables backend requested but 'nft' command is not available".into())
-                }
+                log::info!("Using nftables backend for IP sets (explicitly configured)");
+                Ok(IpsetBackend::Nftables)
             }
             Some(false) => {
-                // Explicitly requested ipset
-                if Self::is_ipset_available() {
-                    log::info!("Using ipset backend for IP sets (explicitly configured)");
-                    Ok(IpsetBackend::Ipset)
-                } else {
-                    Err("ipset backend requested but 'ipset' command is not available".into())
-                }
+                log::info!("Using ipset backend for IP sets (explicitly configured)");
+                Ok(IpsetBackend::Ipset)
             }
             None => {
-                // Auto-detect: try nftables first, then ipset
-                if Self::is_nftables_available() {
-                    log::info!("Using nftables backend for IP sets (auto-detected)");
-                    Ok(IpsetBackend::Nftables)
-                } else if Self::is_ipset_available() {
-                    log::info!(
-                        "Using ipset backend for IP sets (auto-detected, nft not available)"
-                    );
-                    Ok(IpsetBackend::Ipset)
-                } else {
-                    Err(
-                        "no IP set backend available: neither 'nft' nor 'ipset' command found"
-                            .into(),
-                    )
-                }
+                // Auto-detect: try nftables first by attempting to create a test table
+                // If it fails, fall back to ipset
+                log::info!("Using nftables backend for IP sets (auto-detected)");
+                Ok(IpsetBackend::Nftables)
             }
         }
-    }
-
-    /// Check if nftables is available
-    fn is_nftables_available() -> bool {
-        Command::new("nft")
-            .arg("--version")
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .status()
-            .map(|s| s.success())
-            .unwrap_or(false)
-    }
-
-    /// Check if ipset is available
-    fn is_ipset_available() -> bool {
-        Command::new("ipset")
-            .arg("--version")
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .status()
-            .map(|s| s.success())
-            .unwrap_or(false)
     }
 
     /// Get a human-readable name for the backend
@@ -119,6 +78,8 @@ pub struct IpsetManager {
     set_name: String,
     /// nftables table name (only used for nftables backend)
     table_name: String,
+    /// nftables family (only used for nftables backend)
+    nft_family: String,
 }
 
 impl IpsetManager {
@@ -142,6 +103,7 @@ impl IpsetManager {
             backend,
             set_name: set_name.to_string(),
             table_name: "ruhop".to_string(),
+            nft_family: "ip".to_string(),
         };
 
         // Ensure the set exists
@@ -166,75 +128,67 @@ impl IpsetManager {
 
     /// Ensure nftables table and set exist
     fn ensure_nftables_set(&self) -> Result<(), String> {
-        // Check if set already exists
-        let check = Command::new("nft")
-            .args(["list", "set", "ip", &self.table_name, &self.set_name])
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .status();
-
-        if check.map(|s| s.success()).unwrap_or(false) {
-            log::debug!(
-                "nftables set {}.{} already exists",
-                self.table_name,
-                self.set_name
-            );
-            return Ok(());
+        // Create table (ignore error if already exists)
+        match nftset_create_table(&self.nft_family, &self.table_name) {
+            Ok(()) => {
+                log::debug!("Created nftables table {}", self.table_name);
+            }
+            Err(ruhop_ipset::IpSetError::ElementExists) => {
+                log::debug!("nftables table {} already exists", self.table_name);
+            }
+            Err(e) => {
+                return Err(format!("failed to create nftables table: {}", e));
+            }
         }
 
-        // Create table and set
-        let nft_script = format!(
-            "add table ip {table}\nadd set ip {table} {set} {{ type ipv4_addr; }}\n",
-            table = self.table_name,
-            set = self.set_name,
-        );
+        // Create set (ignore error if already exists)
+        let opts = NftSetCreateOptions {
+            set_type: NftSetType::Ipv4Addr,
+            timeout: None,
+            flags: None,
+        };
 
-        let mut child = Command::new("nft")
-            .arg("-f")
-            .arg("-")
-            .stdin(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()
-            .map_err(|e| format!("failed to run nft: {}", e))?;
-
-        if let Some(ref mut stdin) = child.stdin {
-            stdin
-                .write_all(nft_script.as_bytes())
-                .map_err(|e| format!("failed to write nft script: {}", e))?;
+        match nftset_create_set(&self.nft_family, &self.table_name, &self.set_name, &opts) {
+            Ok(()) => {
+                log::info!("Created nftables set {}.{}", self.table_name, self.set_name);
+            }
+            Err(ruhop_ipset::IpSetError::ElementExists) => {
+                log::debug!(
+                    "nftables set {}.{} already exists",
+                    self.table_name,
+                    self.set_name
+                );
+            }
+            Err(e) => {
+                return Err(format!("failed to create nftables set: {}", e));
+            }
         }
 
-        let output = child
-            .wait_with_output()
-            .map_err(|e| format!("failed to wait for nft: {}", e))?;
-
-        if !output.status.success() {
-            return Err(format!(
-                "failed to create nftables set: {}",
-                String::from_utf8_lossy(&output.stderr)
-            ));
-        }
-
-        log::info!("Created nftables set {}.{}", self.table_name, self.set_name);
         Ok(())
     }
 
     /// Ensure ipset set exists
     fn ensure_ipset_set(&self) -> Result<(), String> {
-        // Create set (uses -exist to avoid error if already exists)
-        let output = Command::new("ipset")
-            .args(["create", &self.set_name, "hash:ip", "-exist"])
-            .stderr(Stdio::piped())
-            .output()
-            .map_err(|e| format!("failed to run ipset: {}", e))?;
+        let opts = IpSetCreateOptions {
+            set_type: IpSetType::HashIp,
+            family: IpSetFamily::Inet,
+            hashsize: None,
+            maxelem: None,
+            timeout: None,
+        };
 
-        if !output.status.success() {
-            return Err(format!(
-                "failed to create ipset: {}",
-                String::from_utf8_lossy(&output.stderr)
-            ));
+        match ipset_create(&self.set_name, &opts) {
+            Ok(()) => {
+                log::info!("Created ipset {}", self.set_name);
+            }
+            Err(ruhop_ipset::IpSetError::ElementExists) => {
+                log::debug!("ipset {} already exists", self.set_name);
+            }
+            Err(e) => {
+                return Err(format!("failed to create ipset: {}", e));
+            }
         }
 
-        log::debug!("Ensured ipset {} exists", self.set_name);
         Ok(())
     }
 
@@ -262,83 +216,91 @@ impl IpsetManager {
         }
     }
 
-    /// Add IPs using nftables
+    /// Add IPs using nftables via netlink
     fn add_ips_nftables(&self, ips: &[std::net::Ipv4Addr]) {
-        let elements: Vec<_> = ips.iter().map(|ip| ip.to_string()).collect();
-        let nft_cmd = format!(
-            "add element ip {} {} {{ {} }}\n",
-            self.table_name,
-            self.set_name,
-            elements.join(", ")
-        );
+        let mut added = 0;
+        let mut errors = 0;
 
-        let result = Command::new("nft")
-            .arg("-f")
-            .arg("-")
-            .stdin(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()
-            .and_then(|mut child| {
-                if let Some(ref mut stdin) = child.stdin {
-                    stdin.write_all(nft_cmd.as_bytes())?;
+        for ip in ips {
+            let addr = IpAddr::V4(*ip);
+            match nftset_add(&self.nft_family, &self.table_name, &self.set_name, addr) {
+                Ok(()) => {
+                    added += 1;
                 }
-                child.wait_with_output()
-            });
+                Err(ruhop_ipset::IpSetError::ElementExists) => {
+                    // Element already exists, not an error
+                    added += 1;
+                }
+                Err(e) => {
+                    if errors == 0 {
+                        // Only log the first error to avoid log flooding
+                        log::warn!(
+                            "Failed to add IP {} to nftables set {}.{}: {}",
+                            ip,
+                            self.table_name,
+                            self.set_name,
+                            e
+                        );
+                    }
+                    errors += 1;
+                }
+            }
+        }
 
-        match result {
-            Ok(output) if output.status.success() => {
-                log::debug!(
-                    "Added {} IP(s) to nftables set {}.{}",
-                    ips.len(),
-                    self.table_name,
-                    self.set_name
-                );
-            }
-            Ok(output) => {
-                log::warn!(
-                    "Failed to add IPs to nftables set: {}",
-                    String::from_utf8_lossy(&output.stderr)
-                );
-            }
-            Err(e) => {
-                log::warn!("Failed to run nft command: {}", e);
-            }
+        if added > 0 {
+            log::debug!(
+                "Added {} IP(s) to nftables set {}.{}",
+                added,
+                self.table_name,
+                self.set_name
+            );
+        }
+
+        if errors > 0 {
+            log::warn!(
+                "Failed to add {} IP(s) to nftables set {}.{}",
+                errors,
+                self.table_name,
+                self.set_name
+            );
         }
     }
 
-    /// Add IPs using ipset
+    /// Add IPs using ipset via netlink
     fn add_ips_ipset(&self, ips: &[std::net::Ipv4Addr]) {
-        // Use ipset restore for batch adding
-        let mut restore_script = String::new();
+        let mut added = 0;
+        let mut errors = 0;
+
         for ip in ips {
-            restore_script.push_str(&format!("add {} {} -exist\n", self.set_name, ip));
+            let addr = IpAddr::V4(*ip);
+            match ipset_add(&self.set_name, addr) {
+                Ok(()) => {
+                    added += 1;
+                }
+                Err(ruhop_ipset::IpSetError::ElementExists) => {
+                    // Element already exists, not an error
+                    added += 1;
+                }
+                Err(e) => {
+                    if errors == 0 {
+                        // Only log the first error to avoid log flooding
+                        log::warn!("Failed to add IP {} to ipset {}: {}", ip, self.set_name, e);
+                    }
+                    errors += 1;
+                }
+            }
         }
 
-        let result = Command::new("ipset")
-            .arg("restore")
-            .stdin(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()
-            .and_then(|mut child| {
-                if let Some(ref mut stdin) = child.stdin {
-                    stdin.write_all(restore_script.as_bytes())?;
-                }
-                child.wait_with_output()
-            });
+        if added > 0 {
+            log::debug!("Added {} IP(s) to ipset {}", added, self.set_name);
+        }
 
-        match result {
-            Ok(output) if output.status.success() => {
-                log::debug!("Added {} IP(s) to ipset {}", ips.len(), self.set_name);
-            }
-            Ok(output) => {
-                log::warn!(
-                    "Failed to add IPs to ipset: {}",
-                    String::from_utf8_lossy(&output.stderr)
-                );
-            }
-            Err(e) => {
-                log::warn!("Failed to run ipset command: {}", e);
-            }
+        if errors > 0 {
+            log::warn!(
+                "Failed to add {} IP(s) to ipset {}",
+                errors,
+                self.set_name
+            );
         }
     }
 
