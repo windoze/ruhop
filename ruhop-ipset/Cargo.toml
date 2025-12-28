@@ -9,6 +9,8 @@ description = "Pure Rust implementation of ipset/nftset operations via netlink"
 
 [dependencies]
 thiserror = "2"
+
+[target.'cfg(target_os = "linux")'.dependencies]
 libc = "0.2"
 
 [dev-dependencies]

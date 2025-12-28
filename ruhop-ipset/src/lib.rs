@@ -2,20 +2,33 @@
 //!
 //! This crate provides functions to add, check, and remove IP addresses
 //! from Linux ipset and nftables sets using the netlink protocol.
+//!
+//! On non-Linux platforms, all operations return `Err(IpSetError::UnsupportedPlatform)`.
 
+#[cfg(target_os = "linux")]
 mod netlink;
 
+#[cfg(target_os = "linux")]
 pub mod ipset;
+#[cfg(target_os = "linux")]
 pub mod nftset;
 
+#[cfg(target_os = "linux")]
 pub use ipset::{
     ipset_add, ipset_create, ipset_del, ipset_destroy, ipset_flush, ipset_test, IpSetCreateOptions,
     IpSetFamily, IpSetType,
 };
+#[cfg(target_os = "linux")]
 pub use nftset::{
     nftset_add, nftset_create_set, nftset_create_table, nftset_del, nftset_delete_set,
     nftset_delete_table, nftset_test, NftSetCreateOptions, NftSetType,
 };
+
+// Stub implementations for non-Linux platforms
+#[cfg(not(target_os = "linux"))]
+mod stub;
+#[cfg(not(target_os = "linux"))]
+pub use stub::*;
 
 use std::net::IpAddr;
 use thiserror::Error;
@@ -52,6 +65,9 @@ pub enum IpSetError {
 
     #[error("Protocol error")]
     ProtocolError,
+
+    #[error("Unsupported platform: ipset/nftset operations are only available on Linux")]
+    UnsupportedPlatform,
 }
 
 pub type Result<T> = std::result::Result<T, IpSetError>;
