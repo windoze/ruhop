@@ -407,6 +407,333 @@ iptables -A FORWARD -p icmp --icmp-type time-exceeded -j ACCEPT
 iptables -A FORWARD -p icmp --icmp-type destination-unreachable -j ACCEPT
 ```
 
+## Policy-Based Routing with DNS Proxy and IP Sets
+
+This section describes how to route only specific domains through the VPN using DNS-based IP sets. This is useful when you want to selectively route traffic (e.g., route `example.com` through VPN while keeping other traffic direct).
+
+### Overview
+
+The setup works as follows:
+
+1. **dnsmasq** resolves DNS queries and adds resolved IPs to an IP set
+2. **IP set** stores the IP addresses of specified domains
+3. **Policy routing** routes packets matching the IP set through the VPN
+
+### Prerequisites
+
+- Ruhop client running on a Linux/OpenWRT router
+- dnsmasq installed and configured as DNS server
+- ipset (for iptables) or nftables with sets support
+
+### Step 1: Create the IP Set
+
+#### For iptables/ipset:
+
+```bash
+# Create an IP set to store VPN-routed addresses
+ipset create vpn_domains hash:ip timeout 86400
+```
+
+To make it persistent across reboots, add to `/etc/rc.local` or create an ipset save file.
+
+#### For nftables:
+
+```bash
+# Create the set in your nftables config
+nft add table inet ruhop_route
+nft add set inet ruhop_route vpn_domains { type ipv4_addr \; flags timeout \; timeout 1d \; }
+```
+
+Or add to `/etc/nftables.conf`:
+
+```
+table inet ruhop_route {
+    set vpn_domains {
+        type ipv4_addr
+        flags timeout
+        timeout 1d
+    }
+}
+```
+
+### Step 2: Configure dnsmasq
+
+Add the domains you want to route through VPN to dnsmasq configuration.
+
+#### For iptables/ipset:
+
+Edit `/etc/dnsmasq.conf` or create `/etc/dnsmasq.d/vpn-domains.conf`:
+
+```conf
+# Route these domains through VPN
+ipset=/example.com/vpn_domains
+ipset=/example.org/vpn_domains
+ipset=/.example.net/vpn_domains    # Wildcard: all subdomains
+
+# Multiple domains can share the same ipset
+ipset=/domain1.com/domain2.com/domain3.com/vpn_domains
+```
+
+#### For nftables:
+
+dnsmasq 2.86+ supports nftables sets directly:
+
+```conf
+# Use nftset instead of ipset for nftables
+nftset=/example.com/inet#ruhop_route#vpn_domains
+nftset=/example.org/inet#ruhop_route#vpn_domains
+nftset=/.example.net/inet#ruhop_route#vpn_domains
+```
+
+The format is: `nftset=/<domain>/<family>#<table>#<set>`
+
+Restart dnsmasq after configuration:
+
+```bash
+# systemd
+systemctl restart dnsmasq
+
+# OpenWRT
+/etc/init.d/dnsmasq restart
+```
+
+### Step 3: Set Up Policy Routing
+
+#### Create a routing table for VPN traffic:
+
+```bash
+# Add a named routing table (Linux)
+echo "100 vpn" >> /etc/iproute2/rt_tables
+```
+
+#### Add route to the VPN table:
+
+```bash
+# Route all traffic in table "vpn" through the ruhop interface
+ip route add default dev ruhop table vpn
+```
+
+#### For iptables/ipset - Mark packets matching the IP set:
+
+```bash
+# Mark packets destined to IPs in the vpn_domains set
+iptables -t mangle -A PREROUTING -m set --match-set vpn_domains dst -j MARK --set-mark 0x1
+
+# Route marked packets using the vpn table
+ip rule add fwmark 0x1 table vpn priority 100
+```
+
+#### For nftables:
+
+```bash
+nft add chain inet ruhop_route prerouting { type filter hook prerouting priority mangle \; }
+nft add rule inet ruhop_route prerouting ip daddr @vpn_domains meta mark set 0x1
+```
+
+Or add to your nftables config:
+
+```
+table inet ruhop_route {
+    set vpn_domains {
+        type ipv4_addr
+        flags timeout
+        timeout 1d
+    }
+
+    chain prerouting {
+        type filter hook prerouting priority mangle;
+        ip daddr @vpn_domains meta mark set 0x1
+    }
+}
+```
+
+Then add the routing rule:
+
+```bash
+ip rule add fwmark 0x1 table vpn priority 100
+```
+
+### Step 4: Ruhop Client Configuration
+
+Configure the Ruhop client to NOT route all traffic, since we're doing selective routing:
+
+```toml
+[client]
+server = "vpn.example.com"
+route_all_traffic = false    # Important: don't override default route
+mss_fix = true               # Recommended for NAT gateway usage
+
+[common]
+key = "your-secret-key"
+mtu = 1400
+```
+
+### OpenWRT Complete Example
+
+Here's a complete setup for OpenWRT with fw4 (nftables):
+
+#### 1. Install required packages:
+
+```bash
+opkg update
+opkg install dnsmasq-full    # Full version with ipset/nftset support
+opkg install ip-full         # For policy routing
+```
+
+Note: You may need to remove `dnsmasq` before installing `dnsmasq-full`.
+
+#### 2. Create `/etc/dnsmasq.d/vpn-domains.conf`:
+
+```conf
+# Domains to route through VPN
+nftset=/example.com/inet#ruhop_route#vpn_domains
+nftset=/streaming-service.com/inet#ruhop_route#vpn_domains
+nftset=/.media-cdn.net/inet#ruhop_route#vpn_domains
+```
+
+#### 3. Create `/etc/nftables.d/ruhop-routing.nft`:
+
+```
+table inet ruhop_route {
+    set vpn_domains {
+        type ipv4_addr
+        flags timeout
+        timeout 1d
+    }
+
+    chain prerouting {
+        type filter hook prerouting priority mangle;
+        ip daddr @vpn_domains meta mark set 0x1
+    }
+}
+```
+
+#### 4. Create `/etc/hotplug.d/iface/99-ruhop-routes`:
+
+```bash
+#!/bin/sh
+
+[ "$ACTION" = "ifup" ] && [ "$INTERFACE" = "ruhop" ] && {
+    # Create routing table if not exists
+    grep -q "^100 vpn$" /etc/iproute2/rt_tables || echo "100 vpn" >> /etc/iproute2/rt_tables
+
+    # Add default route via ruhop in vpn table
+    ip route add default dev ruhop table vpn 2>/dev/null
+
+    # Add policy rule for marked packets
+    ip rule del fwmark 0x1 table vpn 2>/dev/null
+    ip rule add fwmark 0x1 table vpn priority 100
+
+    logger -t ruhop "Policy routing configured for ruhop interface"
+}
+
+[ "$ACTION" = "ifdown" ] && [ "$INTERFACE" = "ruhop" ] && {
+    ip rule del fwmark 0x1 table vpn 2>/dev/null
+    ip route del default dev ruhop table vpn 2>/dev/null
+    logger -t ruhop "Policy routing removed for ruhop interface"
+}
+```
+
+Make it executable:
+
+```bash
+chmod +x /etc/hotplug.d/iface/99-ruhop-routes
+```
+
+#### 5. Reload services:
+
+```bash
+/etc/init.d/dnsmasq restart
+/etc/init.d/firewall reload
+```
+
+### Verification
+
+#### Check IP set contents:
+
+```bash
+# For ipset
+ipset list vpn_domains
+
+# For nftables
+nft list set inet ruhop_route vpn_domains
+```
+
+#### Test DNS resolution and IP set population:
+
+```bash
+# Query a domain that should be routed via VPN
+nslookup example.com
+
+# Check if the IP was added to the set
+nft list set inet ruhop_route vpn_domains
+```
+
+#### Verify routing:
+
+```bash
+# Check which table a destination uses
+ip route get <resolved_ip>
+
+# Should show something like:
+# <resolved_ip> dev ruhop table vpn ...
+```
+
+#### Test connectivity:
+
+```bash
+# From a LAN device, trace route to a VPN-routed domain
+traceroute example.com
+```
+
+### Troubleshooting
+
+#### IPs not being added to the set
+
+1. Ensure dnsmasq has nftset/ipset support:
+   ```bash
+   dnsmasq --version | grep -E "ipset|nftset"
+   ```
+
+2. Check dnsmasq logs:
+   ```bash
+   logread | grep dnsmasq
+   ```
+
+3. Verify clients are using dnsmasq for DNS (not bypassing it)
+
+#### Traffic not being routed through VPN
+
+1. Check if the packet is being marked:
+   ```bash
+   # Add a counter to see matches
+   nft add rule inet ruhop_route prerouting ip daddr @vpn_domains counter meta mark set 0x1
+   nft list chain inet ruhop_route prerouting
+   ```
+
+2. Verify the routing rule exists:
+   ```bash
+   ip rule list
+   # Should show: 100: from all fwmark 0x1 lookup vpn
+   ```
+
+3. Verify the VPN route exists:
+   ```bash
+   ip route show table vpn
+   # Should show: default dev ruhop
+   ```
+
+#### DNS cache issues
+
+If domains were accessed before setting up the IP set, their IPs won't be in the set until the DNS cache expires. Force re-resolution:
+
+```bash
+# Clear dnsmasq cache
+killall -HUP dnsmasq
+
+# On client devices, flush DNS cache too
+```
+
 ## Monitoring
 
 ### Health Check

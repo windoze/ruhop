@@ -407,6 +407,333 @@ iptables -A FORWARD -p icmp --icmp-type time-exceeded -j ACCEPT
 iptables -A FORWARD -p icmp --icmp-type destination-unreachable -j ACCEPT
 ```
 
+## 基于策略的路由：DNS 代理与 IP 集合
+
+本节介绍如何使用基于 DNS 的 IP 集合实现仅将特定域名的流量通过 VPN 路由。当您需要选择性路由流量时（例如，将 `example.com` 通过 VPN 路由，而其他流量直连），此方案非常有用。
+
+### 概述
+
+配置的工作流程如下：
+
+1. **dnsmasq** 解析 DNS 查询并将解析到的 IP 添加到 IP 集合
+2. **IP 集合** 存储指定域名的 IP 地址
+3. **策略路由** 将匹配 IP 集合的数据包通过 VPN 路由
+
+### 前提条件
+
+- Ruhop 客户端运行在 Linux/OpenWRT 路由器上
+- 已安装并配置 dnsmasq 作为 DNS 服务器
+- ipset（用于 iptables）或支持集合的 nftables
+
+### 步骤 1：创建 IP 集合
+
+#### 使用 iptables/ipset：
+
+```bash
+# 创建用于存储 VPN 路由地址的 IP 集合
+ipset create vpn_domains hash:ip timeout 86400
+```
+
+要在重启后保持配置，可添加到 `/etc/rc.local` 或创建 ipset 保存文件。
+
+#### 使用 nftables：
+
+```bash
+# 在 nftables 配置中创建集合
+nft add table inet ruhop_route
+nft add set inet ruhop_route vpn_domains { type ipv4_addr \; flags timeout \; timeout 1d \; }
+```
+
+或添加到 `/etc/nftables.conf`：
+
+```
+table inet ruhop_route {
+    set vpn_domains {
+        type ipv4_addr
+        flags timeout
+        timeout 1d
+    }
+}
+```
+
+### 步骤 2：配置 dnsmasq
+
+将需要通过 VPN 路由的域名添加到 dnsmasq 配置中。
+
+#### 使用 iptables/ipset：
+
+编辑 `/etc/dnsmasq.conf` 或创建 `/etc/dnsmasq.d/vpn-domains.conf`：
+
+```conf
+# 通过 VPN 路由这些域名
+ipset=/example.com/vpn_domains
+ipset=/example.org/vpn_domains
+ipset=/.example.net/vpn_domains    # 通配符：所有子域名
+
+# 多个域名可以共享同一个 ipset
+ipset=/domain1.com/domain2.com/domain3.com/vpn_domains
+```
+
+#### 使用 nftables：
+
+dnsmasq 2.86+ 直接支持 nftables 集合：
+
+```conf
+# 对于 nftables 使用 nftset 而不是 ipset
+nftset=/example.com/inet#ruhop_route#vpn_domains
+nftset=/example.org/inet#ruhop_route#vpn_domains
+nftset=/.example.net/inet#ruhop_route#vpn_domains
+```
+
+格式为：`nftset=/<域名>/<协议族>#<表名>#<集合名>`
+
+配置完成后重启 dnsmasq：
+
+```bash
+# systemd
+systemctl restart dnsmasq
+
+# OpenWRT
+/etc/init.d/dnsmasq restart
+```
+
+### 步骤 3：设置策略路由
+
+#### 创建 VPN 流量的路由表：
+
+```bash
+# 添加命名路由表（Linux）
+echo "100 vpn" >> /etc/iproute2/rt_tables
+```
+
+#### 向 VPN 表添加路由：
+
+```bash
+# 将 "vpn" 表中的所有流量通过 ruhop 接口路由
+ip route add default dev ruhop table vpn
+```
+
+#### 使用 iptables/ipset - 标记匹配 IP 集合的数据包：
+
+```bash
+# 标记目标地址在 vpn_domains 集合中的数据包
+iptables -t mangle -A PREROUTING -m set --match-set vpn_domains dst -j MARK --set-mark 0x1
+
+# 使用 vpn 表路由被标记的数据包
+ip rule add fwmark 0x1 table vpn priority 100
+```
+
+#### 使用 nftables：
+
+```bash
+nft add chain inet ruhop_route prerouting { type filter hook prerouting priority mangle \; }
+nft add rule inet ruhop_route prerouting ip daddr @vpn_domains meta mark set 0x1
+```
+
+或添加到 nftables 配置：
+
+```
+table inet ruhop_route {
+    set vpn_domains {
+        type ipv4_addr
+        flags timeout
+        timeout 1d
+    }
+
+    chain prerouting {
+        type filter hook prerouting priority mangle;
+        ip daddr @vpn_domains meta mark set 0x1
+    }
+}
+```
+
+然后添加路由规则：
+
+```bash
+ip rule add fwmark 0x1 table vpn priority 100
+```
+
+### 步骤 4：Ruhop 客户端配置
+
+配置 Ruhop 客户端不路由所有流量，因为我们使用选择性路由：
+
+```toml
+[client]
+server = "vpn.example.com"
+route_all_traffic = false    # 重要：不覆盖默认路由
+mss_fix = true               # 推荐用于 NAT 网关场景
+
+[common]
+key = "your-secret-key"
+mtu = 1400
+```
+
+### OpenWRT 完整示例
+
+以下是使用 fw4（nftables）的 OpenWRT 完整配置：
+
+#### 1. 安装所需软件包：
+
+```bash
+opkg update
+opkg install dnsmasq-full    # 支持 ipset/nftset 的完整版本
+opkg install ip-full         # 用于策略路由
+```
+
+注意：安装 `dnsmasq-full` 前可能需要先卸载 `dnsmasq`。
+
+#### 2. 创建 `/etc/dnsmasq.d/vpn-domains.conf`：
+
+```conf
+# 通过 VPN 路由的域名
+nftset=/example.com/inet#ruhop_route#vpn_domains
+nftset=/streaming-service.com/inet#ruhop_route#vpn_domains
+nftset=/.media-cdn.net/inet#ruhop_route#vpn_domains
+```
+
+#### 3. 创建 `/etc/nftables.d/ruhop-routing.nft`：
+
+```
+table inet ruhop_route {
+    set vpn_domains {
+        type ipv4_addr
+        flags timeout
+        timeout 1d
+    }
+
+    chain prerouting {
+        type filter hook prerouting priority mangle;
+        ip daddr @vpn_domains meta mark set 0x1
+    }
+}
+```
+
+#### 4. 创建 `/etc/hotplug.d/iface/99-ruhop-routes`：
+
+```bash
+#!/bin/sh
+
+[ "$ACTION" = "ifup" ] && [ "$INTERFACE" = "ruhop" ] && {
+    # 如果不存在则创建路由表
+    grep -q "^100 vpn$" /etc/iproute2/rt_tables || echo "100 vpn" >> /etc/iproute2/rt_tables
+
+    # 在 vpn 表中添加通过 ruhop 的默认路由
+    ip route add default dev ruhop table vpn 2>/dev/null
+
+    # 为标记的数据包添加策略规则
+    ip rule del fwmark 0x1 table vpn 2>/dev/null
+    ip rule add fwmark 0x1 table vpn priority 100
+
+    logger -t ruhop "已为 ruhop 接口配置策略路由"
+}
+
+[ "$ACTION" = "ifdown" ] && [ "$INTERFACE" = "ruhop" ] && {
+    ip rule del fwmark 0x1 table vpn 2>/dev/null
+    ip route del default dev ruhop table vpn 2>/dev/null
+    logger -t ruhop "已移除 ruhop 接口的策略路由"
+}
+```
+
+设置可执行权限：
+
+```bash
+chmod +x /etc/hotplug.d/iface/99-ruhop-routes
+```
+
+#### 5. 重新加载服务：
+
+```bash
+/etc/init.d/dnsmasq restart
+/etc/init.d/firewall reload
+```
+
+### 验证
+
+#### 检查 IP 集合内容：
+
+```bash
+# 使用 ipset
+ipset list vpn_domains
+
+# 使用 nftables
+nft list set inet ruhop_route vpn_domains
+```
+
+#### 测试 DNS 解析和 IP 集合填充：
+
+```bash
+# 查询应通过 VPN 路由的域名
+nslookup example.com
+
+# 检查 IP 是否已添加到集合
+nft list set inet ruhop_route vpn_domains
+```
+
+#### 验证路由：
+
+```bash
+# 检查目标地址使用哪个表
+ip route get <解析的IP>
+
+# 应显示类似：
+# <解析的IP> dev ruhop table vpn ...
+```
+
+#### 测试连通性：
+
+```bash
+# 从 LAN 设备跟踪到 VPN 路由域名的路由
+traceroute example.com
+```
+
+### 故障排查
+
+#### IP 未添加到集合
+
+1. 确保 dnsmasq 支持 nftset/ipset：
+   ```bash
+   dnsmasq --version | grep -E "ipset|nftset"
+   ```
+
+2. 检查 dnsmasq 日志：
+   ```bash
+   logread | grep dnsmasq
+   ```
+
+3. 验证客户端使用 dnsmasq 进行 DNS 解析（未绕过它）
+
+#### 流量未通过 VPN 路由
+
+1. 检查数据包是否被标记：
+   ```bash
+   # 添加计数器查看匹配情况
+   nft add rule inet ruhop_route prerouting ip daddr @vpn_domains counter meta mark set 0x1
+   nft list chain inet ruhop_route prerouting
+   ```
+
+2. 验证路由规则存在：
+   ```bash
+   ip rule list
+   # 应显示：100: from all fwmark 0x1 lookup vpn
+   ```
+
+3. 验证 VPN 路由存在：
+   ```bash
+   ip route show table vpn
+   # 应显示：default dev ruhop
+   ```
+
+#### DNS 缓存问题
+
+如果在设置 IP 集合之前已访问过域名，其 IP 不会在集合中，直到 DNS 缓存过期。强制重新解析：
+
+```bash
+# 清除 dnsmasq 缓存
+killall -HUP dnsmasq
+
+# 在客户端设备上也刷新 DNS 缓存
+```
+
 ## 监控
 
 ### 健康检查
