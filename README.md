@@ -29,9 +29,13 @@ Download pre-built binaries from the [Releases](https://github.com/windoze/ruhop
 | Linux aarch64 | `ruhop-linux-arm64.tar.gz` | Standalone binary (musl, static) |
 | Linux x86_64 | `ruhop-linux-amd64.deb` | Debian/Ubuntu package with systemd service |
 | Linux aarch64 | `ruhop-linux-arm64.deb` | Debian/Ubuntu package with systemd service |
+| OpenWrt x86_64 | `ruhop-openwrt-x86_64.ipk` | OpenWrt package |
+| OpenWrt aarch64 | `ruhop-openwrt-aarch64.ipk` | OpenWrt package |
 | macOS | `ruhop-macos-universal.tar.gz` | Universal binary (Intel + Apple Silicon) |
-| Windows | `ruhop-windows-amd64.zip` | Standalone executable |
-| Windows | `ruhop-windows-amd64-setup.exe` | NSIS installer (includes wintun.dll) |
+| Windows x86_64 | `ruhop-windows-amd64.zip` | Standalone executable |
+| Windows x86_64 | `ruhop-windows-amd64-setup.exe` | NSIS installer (includes wintun.dll) |
+| Windows ARM64 | `ruhop-windows-arm64.zip` | Standalone executable |
+| Windows ARM64 | `ruhop-windows-arm64-setup.exe` | NSIS installer (includes wintun.dll) |
 
 **Linux/macOS**: Extract and run directly (executable permissions preserved):
 ```bash
